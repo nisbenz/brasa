@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.claude/
+design/
+# data lives outside the repo (default ~/firms); never commit it
+*.zip
+*.parquet
+*.bin
+duck_tmp/

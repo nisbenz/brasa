@@ -1,0 +1,58 @@
+{
+ "reference": "VIIRS S-NPP 375 m, type=0 (vegetation fire), confidence nominal/high",
+ "modis_filter": "MODIS C6.1, type=0, confidence >= 30",
+ "grid_deg": 0.25,
+ "global_ratio_ta": 4.113,
+ "global_ratio_t": 12.097,
+ "excluded_training_months": [
+  "2012-01",
+  "2022-04",
+  "2022-07",
+  "2022-08",
+  "2024-07",
+  "2025-08"
+ ],
+ "source_counts": {
+  "VS": 164,
+  "MTA": 115,
+  "MT": 20,
+  "VN": 3
+ },
+ "coverage_corrected_months": [
+  {
+   "year": 2001,
+   "month": 6,
+   "cov_factor": 2.0
+  },
+  {
+   "year": 2001,
+   "month": 7,
+   "cov_factor": 1.069
+  },
+  {
+   "year": 2002,
+   "month": 3,
+   "cov_factor": 1.348
+  },
+  {
+   "year": 2002,
+   "month": 7,
+   "cov_factor": 1.192
+  },
+  {
+   "year": 2002,
+   "month": 8,
+   "cov_factor": 1.292
+  },
+  {
+   "year": 2003,
+   "month": 12,
+   "cov_factor": 1.292
+  },
+  {
+   "year": 2008,
+   "month": 12,
+   "cov_factor": 1.069
+  }
+ ]
+}

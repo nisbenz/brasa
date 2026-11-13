@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en" data-theme="day">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Brasa — fire history, harmonized</title>
+<meta name="description" content="Twenty-five years of satellite fire detections for any area, on one consistent scale.">
+<link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Commissioner:wght@400;500;700&family=Zilla+Slab:ital,wght@0,500;0,600;0,700;1,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
+<link rel="stylesheet" href="/assets/style.css">
+<script>try{var t=localStorage.getItem('brasa-theme');if(t==='night'||t==='day')document.documentElement.dataset.theme=t;else if(matchMedia('(prefers-color-scheme: dark)').matches)document.documentElement.dataset.theme='night'}catch(e){}</script>
+</head>
+<body>
+<a class="skip" href="#record">Skip to the fire record</a>
+
+<header class="mast">
+  <a class="mark" href="/" aria-label="Brasa home">
+    <svg viewBox="0 0 40 40" width="34" height="34" aria-hidden="true">
+      <circle cx="20" cy="20" r="17" fill="none" stroke="currentColor" stroke-width="2.4"/>
+      <circle cx="20" cy="20" r="11.5" fill="none" stroke="currentColor" stroke-width="2.4"/>
+      <circle cx="20" cy="20" r="6" fill="none" stroke="currentColor" stroke-width="2.4"/>
+      <path d="M20 20 L31 4.5 A18.6 18.6 0 0 1 37.4 12 Z" fill="var(--scar)"/>
+    </svg>
+    <span>Brasa</span>
+  </a>
+  <nav class="mast-tools" aria-label="Page tools">
+    <button class="link" id="helpBtn" type="button">How the numbers are made</button>
+    <button class="icon" id="themeBtn" type="button" aria-label="Switch to night theme">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+    </button>
+  </nav>
+</header>
+
+<main id="record">
+  <section class="title" aria-live="polite">
+    <h1 id="areaTitle">Choose an area</h1>
+    <p class="facts"><span id="areaKm"></span><span id="periodTxt"></span><span id="cellsTxt"></span></p>
+    <div class="reading" id="reading"><p>Draw an area on the map, pick a country, or start from one of the examples below.</p></div>
+    <div class="now" id="now" aria-live="polite"></div>
+  </section>
+
+  <div class="stage">
+    <aside class="where" aria-label="Area and period">
+      <div id="map" class="map" role="region" aria-label="Map. Draw a rectangle or polygon to choose an area."></div>
+      <p class="coords" id="coords" aria-hidden="true"></p>
+
+      <div class="tabs" role="tablist" id="areaTabs" aria-label="How to choose the area">
+        <button role="tab" type="button" data-tab="draw" aria-selected="true">Draw</button>
+        <button role="tab" type="button" data-tab="bbox" aria-selected="false">Coordinates</button>
+        <button role="tab" type="button" data-tab="point" aria-selected="false">Radius</button>
+        <button role="tab" type="button" data-tab="country" aria-selected="false">Country</button>
+      </div>
+      <div class="pane" data-pane="draw"><p class="hint">Use the rectangle or polygon tool on the map. A new shape replaces the current area.</p></div>
+      <form class="pane" data-pane="bbox" id="bboxForm" hidden novalidate>
+        <div class="quad">
+          <label>North<input id="bN" inputmode="decimal" placeholder="−6"></label>
+          <label>South<input id="bS" inputmode="decimal" placeholder="−12"></label>
+          <label>West<input id="bW" inputmode="decimal" placeholder="−63"></label>
+          <label>East<input id="bE" inputmode="decimal" placeholder="−54"></label>
+        </div>
+        <button class="btn" type="submit">Show this box</button>
+        <p class="err" id="bboxErr" role="alert"></p>
+      </form>
+      <form class="pane" data-pane="point" id="pointForm" hidden novalidate>
+        <div class="quad three">
+          <label>Latitude<input id="pLat" inputmode="decimal" placeholder="39.5"></label>
+          <label>Longitude<input id="pLon" inputmode="decimal" placeholder="−120.5"></label>
+          <label>Radius, km<input id="pRad" inputmode="decimal" value="50"></label>
+        </div>
+        <p class="hint">Or click the map to place the centre.</p>
+        <button class="btn" type="submit">Show this circle</button>
+        <p class="err" id="pointErr" role="alert"></p>
+      </form>
+      <div class="pane" data-pane="country" hidden>
+        <label class="wide">Country<input id="countryIn" list="countryList" autocomplete="off" placeholder="Start typing a name"></label>
+        <datalist id="countryList"></datalist>
+        <p class="err" id="countryErr" role="alert"></p>
+      </div>
+
+      <div class="examples">
+        <h2 class="small-h">Examples</h2>
+        <ul id="presets"></ul>
+      </div>
+
+      <div class="period">
+        <h2 class="small-h">Period</h2>
+        <div class="quad">
+          <label>From<input type="month" id="mFrom"></label>
+          <label>To<input type="month" id="mTo"></label>
+        </div>
+        <div class="chips" role="group" aria-label="Quick periods">
+          <button type="button" class="chip" data-range="all">Whole record</button>
+          <button type="button" class="chip" data-range="2012">VIIRS era</button>
+          <button type="button" class="chip" data-range="12">Last 12 months</button>
+        </div>
+        <p class="err" id="rangeErr" role="alert"></p>
+      </div>
+    </aside>
+
+    <section class="rings" aria-labelledby="ringH">
+      <h2 id="ringH" class="sr">Fire rings: every year as a ring, every month as a spoke</h2>
+      <div class="ring-wrap">
+        <div id="ring" class="ring"></div>
+        <div class="readout" id="readout" aria-live="polite"></div>
+      </div>
+      <p class="ring-key" id="ringKey"></p>
+    </section>
+  </div>
+
+  <section class="block globe-block" aria-labelledby="globeH">
+    <div class="block-head">
+      <h2 id="globeH">The whole planet</h2>
+      <div class="switch" role="radiogroup" aria-label="Globe shows" id="globeMode">
+        <button type="button" role="radio" aria-checked="true" data-gmode="season">A typical year</button>
+        <button type="button" role="radio" aria-checked="false" data-gmode="year">Year by year</button>
+      </div>
+      <div class="switch" role="radiogroup" aria-label="Colour the globe by" id="globeColour" hidden>
+        <button type="button" role="radio" aria-checked="true" data-gcol="count">Hotspots</button>
+        <button type="button" role="radio" aria-checked="false" data-gcol="anom">Compared with usual</button>
+      </div>
+    </div>
+    <div class="globe-wrap">
+      <div id="globe" class="globe" role="img" aria-label="Globe of harmonized fire hotspots on a 1° grid. Taller, brighter columns mean more fire."></div>
+      <div class="globe-side">
+        <div class="g-when" id="gWhen" aria-live="polite">September</div>
+        <div class="g-total" id="gTotal"></div>
+        <div class="scrub">
+          <button class="btn" id="gPlay" type="button" aria-pressed="false">Play</button>
+          <input type="range" id="gRange" min="0" max="11" value="8" aria-label="Month">
+        </div>
+        <p class="g-note" id="gNote">Each column is one 1° cell, about 110 km across. Its height and colour show the average hotspots in that month, 2001–2025, in VIIRS terms.</p>
+        <p class="hint">Drag to turn the planet and scroll to zoom. Click anywhere to load the 100 km around that point.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" aria-labelledby="calH">
+    <div class="block-head">
+      <h2 id="calH">Month by month</h2>
+      <div class="toggles">
+        <div class="switch" role="radiogroup" aria-label="View" id="viewSeg">
+          <button type="button" role="radio" aria-checked="true" data-view="grid">Grid</button>
+          <button type="button" role="radio" aria-checked="false" data-view="relief">Relief</button>
+        </div>
+        <div class="switch" role="radiogroup" aria-label="Colour by" id="modeSeg">
+          <button type="button" role="radio" aria-checked="true" data-mode="count">Hotspots</button>
+          <button type="button" role="radio" aria-checked="false" data-mode="anom">Compared with usual</button>
+        </div>
+        <div class="switch" role="radiogroup" aria-label="Scale" id="scaleSeg">
+          <button type="button" role="radio" aria-checked="false" data-scale="linear">Linear</button>
+          <button type="button" role="radio" aria-checked="true" data-scale="log">Log</button>
+        </div>
+      </div>
+    </div>
+    <div id="heatWrap"></div>
+    <div id="relief" class="relief" hidden role="img" aria-label="Relief view of the month-by-month calendar: each column is a month, taller means more hotspots. The same values are in the grid view."></div>
+    <div class="legend-row"><div id="legend"></div>
+      <ul class="prov">
+        <li><i class="sw obs"></i>Observed by VIIRS</li>
+        <li><i class="sw est"></i>Estimated from MODIS</li>
+        <li><i class="sw n20"></i>NOAA-20 stands in for S-NPP</li>
+      </ul>
+    </div>
+    <p class="status" id="status" role="status"></p>
+  </section>
+
+  <section class="block agree" aria-labelledby="agreeH">
+    <div class="agree-grid">
+      <figure>
+        <figcaption><h2 id="agreeH">Do the two sensors agree?</h2>
+          <p class="sub">Hotspots per year in this area. Raw MODIS sits far below VIIRS because its 1 km pixels miss small fires. Converted to VIIRS terms it should land on the VIIRS line wherever both satellites flew, and that conversion is what fills 2000–2011.</p></figcaption>
+        <div id="agreeChart" class="chart"></div>
+      </figure>
+      <div class="agree-side" id="agreeSide"></div>
+    </div>
+  </section>
+
+  <section class="block pair">
+    <figure>
+      <figcaption><h2>A typical year</h2><p class="sub">Middle line is the median month across 2001–2025; the shaded band holds 8 years in 10. <span class="yr-key" id="yrKey"></span></p></figcaption>
+      <div id="clim" class="chart"></div>
+    </figure>
+    <figure>
+      <figcaption><h2>Year by year</h2><p class="sub">Hatched bars are estimated from MODIS. Click a year in the calendar to trace it on the left.</p></figcaption>
+      <div id="annual" class="chart"></div>
+    </figure>
+  </section>
+
+  <section class="block take" aria-labelledby="takeH">
+    <h2 id="takeH">Take the data with you</h2>
+    <div class="take-row">
+      <div><button class="btn primary" id="csvCal" type="button">Download the calendar</button><p class="hint">One row per month: harmonized count, source, raw MODIS and VIIRS counts, median, anomaly, uncertainty.</p></div>
+      <div><button class="btn" id="csvPts" type="button">Download every hotspot</button><p class="hint">Raw FIRMS detections inside the area for the period, all three sensors, up to 500,000 rows.</p></div>
+    </div>
+    <p class="status" id="exportMsg" role="status"></p>
+  </section>
+
+  <footer class="foot">
+    <p>Data from NASA FIRMS: MODIS Collection 6.1 (Terra and Aqua) and VIIRS 375 m (Suomi NPP and NOAA-20), standard processing. Counts are satellite fire detections, not burned area. Basemap © Esri, HERE, Garmin, © OpenStreetMap contributors.</p>
+    <p>Built for the NASA Space Apps Challenge 2026.</p>
+  </footer>
+</main>
+
+<div class="tip" id="tip" hidden role="tooltip"></div>
+
+<dialog id="how" aria-labelledby="howH">
+  <div class="how-head"><h2 id="howH">How the numbers are made</h2><button class="icon" id="howClose" type="button" aria-label="Close">
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button></div>
+  <div class="how-body">
+    <p class="lede">MODIS has watched fires since 2000. VIIRS, its successor, sees smaller fires with sharper pixels, so it reports about four times as many hotspots. Brasa rewrites the MODIS years in VIIRS terms so that 2003 and 2023 can sit in the same calendar.</p>
+    <div class="timeline" aria-hidden="true">
+      <div class="tl-axis"><span>2000</span><span>2006</span><span>2012</span><span>2018</span><span>2025</span></div>
+      <div class="tl-bar modis-t" style="left:0;width:6.6%">Terra</div>
+      <div class="tl-bar modis" style="left:6.6%;width:93.4%">MODIS Terra + Aqua</div>
+      <div class="tl-bar snpp" style="left:44.4%;width:55.6%">VIIRS Suomi NPP</div>
+      <div class="tl-bar n20" style="left:68.2%;width:31.8%">VIIRS NOAA-20</div>
+      <div class="tl-cal" style="left:44.4%;width:55.6%">calibration overlap</div>
+    </div>
+    <ol class="steps">
+      <li><h3>Count fires on a 25 km grid</h3><p>Every detection lands in a 0.25° cell and a month. Only presumed vegetation fires are kept: volcanoes, gas flares and other fixed heat sources are removed, as are low-confidence detections.</p></li>
+      <li><h3>Learn how VIIRS and MODIS differ, cell by cell</h3><p>From 2012 to 2024 both sensors flew. For each cell, Brasa learns how many VIIRS hotspots correspond to one MODIS hotspot. Cells with few fires borrow from their neighbourhood (1°, then 5°, then the globe), and the ratio shifts with the season.</p></li>
+      <li><h3>Add the fires MODIS could not see</h3><p>When MODIS saw nothing in a cell, VIIRS often still caught small fires. Brasa adds the number VIIRS typically finds in that situation. Leaving this out undercounts by several percent.</p></li>
+      <li><h3>Rewrite 2000–2011, keep VIIRS from 2012</h3><p>Before Aqua launched (to June 2002) only Terra flew, so a separate Terra-only model is used. Months with satellite outages are scaled by days observed, and the two Suomi NPP outages (August 2022, July 2024) use NOAA-20.</p></li>
+    </ol>
+    <h3 class="val-h">Does it work?</h3>
+    <p>Trained on 2012–2018 only, then asked to predict 2019–2024 from MODIS and compared with what VIIRS actually saw. The last row shows two VIIRS satellites compared with each other: no conversion can do better than that.</p>
+    <div class="val-wrap"><table id="valTable"></table></div>
+    <p class="hint">Error is the median of |ln((predicted+1)/(observed+1))|; 0.21 means a typical miss of about 23%.</p>
+  </div>
+</dialog>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module" src="/assets/app.js"></script>
+</body>
+</html>
