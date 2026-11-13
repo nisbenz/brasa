@@ -78,6 +78,9 @@ def export_calendar(q: Query):
 def export_points(q: Query):
     end = q.end or engine.meta()["last_month"]
     sensors = tuple(q.sensors or ("modis", "viirs-snpp", "viirs-jpss1"))
+    if not any((engine.DATA / "points").glob("*.parquet")):
+        raise HTTPException(404, "Raw hotspot files are not on this machine. The prebuilt dataset covers the "
+                                 "calendar only; run pipeline steps 01 and 06 to enable this export.")
     df = engine.points(q.area, q.start, end, sensors)
     return _csv(df, "brasa_hotspots.csv")
 

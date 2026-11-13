@@ -92,6 +92,20 @@ The full tables are in [`docs/validation/`](docs/validation/).
 
 ## Run it
 
+### Quick start: prebuilt data (about 2 minutes)
+
+The [`data-2000-2025` release](https://github.com/nisbenz/brasa/releases/tag/data-2000-2025) holds the harmonized tables the app reads (87 MB). This skips the 9 GB FIRMS download and the pipeline. You need Python 3.12 and the GitHub CLI (`gh`) signed in.
+
+```bash
+python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
+pipeline/fetch_prebuilt.sh                                        # checks the SHA-256, unpacks into ~/firms/derived
+cd app && ../.venv/bin/python -m uvicorn server:app --port 8765   # open http://localhost:8765
+```
+
+Everything works except **Download every hotspot**, which needs the raw detections from the full build below. The app tells you this if you click it.
+
+### Full build from NASA FIRMS
+
 Requirements: Python 3.12, about 25 GB of free disk for the raw zips plus derived data, and internet access in the browser for map tiles, fonts and three.js.
 
 ```bash
