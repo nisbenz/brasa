@@ -5,9 +5,13 @@ Output: <out_dir>/points/<sensor>_<year>.parquet with a unified schema:
   lat, lon, date, time(hhmm int), satellite, confidence(str), frp, bright,
   scan, track, daynight, type, country, sensor
 """
-import io, re, sys, zipfile
+import io
+import re
+import sys
+import zipfile
 from multiprocessing import Pool
 from pathlib import Path
+
 import polars as pl
 
 ZIP_RE = re.compile(r"^(modis|viirs-snpp|viirs-jpss1)_(\d{4})_all_countries\.zip$")

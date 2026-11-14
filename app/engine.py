@@ -7,9 +7,16 @@ Area spec (dict):
   {"type": "country", "name": "Brazil"}
 A 0.25deg cell belongs to the area when its centre is inside it.
 """
-import io, json, math, os, threading
+import io
+import json
+import math
+import os
+import threading
 from pathlib import Path
-import duckdb, numpy as np, pandas as pd
+
+import duckdb
+import numpy as np
+import pandas as pd
 
 DATA = Path(os.environ.get("BRASA_DATA", Path.home() / "firms/derived"))
 APP = DATA / "app"

@@ -8,3 +8,5 @@ design/
 *.parquet
 *.bin
 duck_tmp/
+.venv/
+data/
