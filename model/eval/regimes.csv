@@ -1,0 +1,37 @@
+model,regime,bias_pct,cell_med_abs_log_err
+old,0,-7.0,0.424
+old,<1,-10.8,0.505
+old,1-10,-5.7,0.427
+old,10-100,1.1,0.326
+old,>=100,0.9,0.225
+old,MODIS saw nothing,-15.0,0.938
+new,0,-5.9,0.446
+new,<1,-11.7,0.516
+new,1-10,-8.1,0.437
+new,10-100,-3.9,0.33
+new,>=100,-3.9,0.229
+new,MODIS saw nothing,-18.5,1.022
+new [Terra-only],0,-7.2,0.577
+new [Terra-only],<1,-12.9,0.717
+new [Terra-only],1-10,-8.3,0.607
+new [Terra-only],10-100,-2.0,0.484
+new [Terra-only],>=100,-6.1,0.366
+new [Terra-only],MODIS saw nothing,24.8,0.871
+Brasa M3,0,-6.3,0.546
+Brasa M3,<1,1.7,0.622
+Brasa M3,1-10,-3.1,0.52
+Brasa M3,10-100,-0.8,0.389
+Brasa M3,>=100,-4.5,0.263
+Brasa M3,MODIS saw nothing,-1.9,1.609
+Brasa M3 [Terra-only],0,1.9,0.689
+Brasa M3 [Terra-only],<1,15.6,0.988
+Brasa M3 [Terra-only],1-10,4.0,0.783
+Brasa M3 [Terra-only],10-100,-2.0,0.609
+Brasa M3 [Terra-only],>=100,-11.1,0.509
+Brasa M3 [Terra-only],MODIS saw nothing,71.5,1.254
+ceiling NOAA-20,0,-1.3,0.194
+ceiling NOAA-20,<1,-0.5,0.235
+ceiling NOAA-20,1-10,-0.0,0.251
+ceiling NOAA-20,10-100,-0.9,0.216
+ceiling NOAA-20,>=100,-1.8,0.154
+ceiling NOAA-20,MODIS saw nothing,2.5,0.288

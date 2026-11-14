@@ -1,0 +1,36 @@
+year,model,med_abs_log_err,bias_pct
+2019,old,0.196,1.0
+2019,new,0.177,-1.85
+2019,new [Terra-only],0.255,-0.7
+2019,Brasa M3,0.214,-1.49
+2019,Brasa M3 [Terra-only],0.297,1.82
+2020,old,0.207,-1.93
+2020,new,0.205,-5.0
+2020,new [Terra-only],0.269,-2.52
+2020,Brasa M3,0.248,-4.34
+2020,Brasa M3 [Terra-only],0.336,1.87
+2021,old,0.199,0.33
+2021,new,0.191,-1.89
+2021,new [Terra-only],0.273,-0.25
+2021,Brasa M3,0.24,-1.72
+2021,Brasa M3 [Terra-only],0.33,0.94
+2022,old,0.227,-1.67
+2022,new,0.216,-4.09
+2022,new [Terra-only],0.337,-4.79
+2022,Brasa M3,0.26,-3.27
+2022,Brasa M3 [Terra-only],0.371,-7.0
+2023,old,0.206,0.8
+2023,new,0.197,-2.24
+2023,new [Terra-only],0.294,-4.88
+2023,Brasa M3,0.242,-3.14
+2023,Brasa M3 [Terra-only],0.344,-9.08
+2024,old,0.236,2.39
+2024,new,0.233,-4.93
+2024,new [Terra-only],0.332,-10.18
+2024,Brasa M3,0.28,-2.07
+2024,Brasa M3 [Terra-only],0.384,-11.47
+2025,old,0.255,-2.69
+2025,new,0.274,-13.86
+2025,new [Terra-only],0.392,-13.32
+2025,Brasa M3,0.3,-4.86
+2025,Brasa M3 [Terra-only],0.416,-18.9

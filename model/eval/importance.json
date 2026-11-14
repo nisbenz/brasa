@@ -1,0 +1,37 @@
+{
+ "months": [
+  "2020-09",
+  "2025-07",
+  "2019-06",
+  "2023-01",
+  "2025-03",
+  "2019-05",
+  "2023-07",
+  "2025-06",
+  "2022-11",
+  "2020-08",
+  "2021-06",
+  "2019-07"
+ ],
+ "increase_5deg_err": {
+  "old": {
+   "counts": 1.015,
+   "FRP": 0.308,
+   "location + climatology (shifted)": 0.232,
+   "night share": 0.077,
+   "fire days / burstiness": 0.075,
+   "pixel size / confidence / brightness": 0.017
+  },
+  "new": {
+   "counts": 1.311,
+   "Aqua block (all a_*)": 0.408,
+   "FRP": 0.383,
+   "location + climatology (shifted)": 0.29,
+   "Terra block (all t_*)": 0.286,
+   "night share": 0.094,
+   "fire days / burstiness": 0.06,
+   "pixel size / confidence / brightness": 0.029,
+   "local overpass time": -0.002
+  }
+ }
+}
