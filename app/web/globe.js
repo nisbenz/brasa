@@ -35,15 +35,31 @@ export async function createGlobe(el, { onPick, onHover } = {}) {
   el.appendChild(renderer.domElement);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(32, 1, .1, 100);
-  camera.position.copy(vec(-5, -55, 3.6));
+  const box0 = el.getBoundingClientRect(), REST = box0.width / Math.max(box0.height, 1) < .9 ? 5.2 : 4.2;
+  camera.position.copy(vec(-5, -55, reduced ? REST : 6.2));
+  let dolly = REST;  // target camera distance, eased toward until reached (null = free)
   const controls = new OrbitControls(camera, renderer.domElement);
-  Object.assign(controls, { enableDamping: true, dampingFactor: .08, enablePan: false, minDistance: 1.55, maxDistance: 5, rotateSpeed: .55, zoomSpeed: .7 });
+  // the globe fills the hero, so the wheel keeps scrolling the page; zoom goes through zoom()
+  Object.assign(controls, { enableDamping: true, dampingFactor: .08, enablePan: false, enableZoom: matchMedia('(pointer: coarse)').matches, zoomSpeed: .7, minDistance: 1.55, maxDistance: 6.5, rotateSpeed: .55 });
   controls.autoRotate = !reduced; controls.autoRotateSpeed = .35;
   scene.add(new THREE.AmbientLight(0xffffff, 1.6));
   const sun = new THREE.DirectionalLight(0xffffff, 1.4); scene.add(sun);
 
   const ocean = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 64), new THREE.MeshBasicMaterial());
   scene.add(ocean);
+  // atmosphere: a back-faced shell lit at the limb
+  const atmo = new THREE.Mesh(new THREE.SphereGeometry(1.22, 96, 64), new THREE.ShaderMaterial({
+    uniforms: { c: { value: new THREE.Color() } }, side: THREE.BackSide, transparent: true, depthWrite: false,
+    vertexShader: 'varying vec3 vN; void main(){ vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'uniform vec3 c; varying vec3 vN; void main(){ float i = pow(clamp(-dot(vN, vec3(0.0, 0.0, 1.0)), 0.0, 1.0), 1.7); gl_FragColor = vec4(c, i * 0.5); }',
+  }));
+  scene.add(atmo);
+  // a sparse starfield, night theme only
+  const starPos = new Float32Array(1400 * 3);
+  for (let i = 0; i < 1400; i++) { const v = new THREE.Vector3().randomDirection().multiplyScalar(18 + Math.random() * 14); starPos.set([v.x, v.y, v.z], i * 3); }
+  const starGeo = new THREE.BufferGeometry(); starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+  const starMat = new THREE.PointsMaterial({ size: .06, transparent: true, depthWrite: false });
+  scene.add(new THREE.Points(starGeo, starMat));
   const grat = new THREE.Group(); scene.add(grat);
   const lineMat = new THREE.LineBasicMaterial({ transparent: true });
   const gratMat = new THREE.LineBasicMaterial({ transparent: true });
@@ -124,22 +140,25 @@ export async function createGlobe(el, { onPick, onHover } = {}) {
     if (ring.length < 3) return;
     const pts = ring.map(([x, y]) => vec(y, x, 1.004));
     areaObj = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), Math.max(64, pts.length * 2), .006, 6, true),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(css('--ink')), depthTest: false, transparent: true }));
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(css('--scar')), depthTest: false, transparent: true }));
     areaObj.renderOrder = 10;
     scene.add(areaObj);
     // swing the camera to face the area
     const c = new THREE.Vector3(); pts.forEach(p => c.add(p)); c.normalize();
-    flyTo = c.multiplyScalar(camera.position.length());
+    flyTo = c;
     controls.autoRotate = false;
   }
   let flyTo = null;
 
   // ---- theme ----
   function setTheme() {
-    ocean.material.color.set(css('--paper-2'));
-    lineMat.color.set(css('--ink')); lineMat.opacity = .75;
-    gratMat.color.set(css('--rule')); gratMat.opacity = .55;
-    if (areaObj) areaObj.material.color.set(css('--ink'));
+    ocean.material.color.set(css('--globe-ocean'));
+    lineMat.color.set(css('--globe-line')); lineMat.opacity = +css('--globe-line-a') || .6;
+    gratMat.color.set(css('--globe-grat')); gratMat.opacity = .6;
+    atmo.material.uniforms.c.value.set(css('--glow'));
+    starMat.color.set(css('--ink')); starMat.opacity = +css('--stars') || 0; starMat.visible = starMat.opacity > 0;
+    if (areaObj) areaObj.material.color.set(css('--scar'));
+    dirty = true;
   }
 
   // ---- interaction ----
@@ -175,7 +194,9 @@ export async function createGlobe(el, { onPick, onHover } = {}) {
   function frame() {
     requestAnimationFrame(frame);
     if (!visible) return;
-    if (flyTo) { camera.position.lerp(flyTo, reduced ? 1 : .07); camera.position.setLength(flyTo.length()); if (camera.position.distanceTo(flyTo) < .01) flyTo = null; dirty = true; }
+    const L = camera.position.length();
+    if (flyTo) { const d = camera.position.clone().normalize().lerp(flyTo, reduced ? 1 : .07).normalize(); camera.position.copy(d.multiplyScalar(L)); if (d.angleTo(flyTo) < .002) flyTo = null; dirty = true; }
+    if (dolly != null) { if (Math.abs(L - dolly) > .002) camera.position.setLength(reduced ? dolly : L + (dolly - L) * .045); else dolly = null; dirty = true; }
     controls.update();
     if (apply(false)) dirty = true;
     sun.position.copy(camera.position).add(new THREE.Vector3(1.5, 2, 0));
@@ -188,6 +209,8 @@ export async function createGlobe(el, { onPick, onHover } = {}) {
     let tot = 0; for (let i = 0; i < n; i++) tot += values[i];
     return { label: mode === 'season' ? MONTH[step] : String(years[step]), total: tot };
   }
+  function zoom(f) { dolly = Math.min(controls.maxDistance, Math.max(controls.minDistance + .05, (dolly ?? camera.position.length()) * f)); dirty = true; }
   setTheme(); setStep('season', 8); apply(true); frame();
-  return { setArea, setTheme, setStep, years, months: MONTH };
+  requestAnimationFrame(() => el.classList.add('ready'));
+  return { setArea, setTheme, setStep, zoom, years, months: MONTH };
 }

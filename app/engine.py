@@ -22,6 +22,7 @@ DATA = Path(os.environ.get("BRASA_DATA", Path.home() / "firms/derived"))
 APP = DATA / "app"
 _local = threading.local()
 SRC_LABEL = {"MT": "MODIS Terra → VIIRS-eq", "MTA": "MODIS Terra+Aqua → VIIRS-eq",
+             "NN": "MODIS Terra+Aqua → VIIRS-eq (U-Net ensemble)",
              "VS": "VIIRS S-NPP observed", "VN": "VIIRS NOAA-20 observed (S-NPP gap)"}
 
 
@@ -98,22 +99,31 @@ def monthly(cells):
     """Full monthly series for the area (2000-11 .. last month), harmonized, with provenance."""
     c = con()
     c.register("sel", pd.DataFrame({"cell": np.asarray(cells, dtype="int32")}))
+    # With the U-Net ensemble loaded (pipeline/08_merge_unet.py) the small-fire floor belongs to M3 only:
+    # it applies to the legacy cells that stay on M3, and to every cell in the Terra-only months.
+    nn = (APP / "legacy_cells.parquet").exists()
+    leg = f"'{APP}/legacy_cells.parquet'" if nn else "(SELECT NULL::INTEGER AS cell WHERE false)"
+    eq_ta, eq_u = ("b_ta_l", "u_ta_l") if nn else ("b_ta", "u_ta")
     q = f"""
-    WITH h AS (
+    WITH lg AS (SELECT cell FROM {leg}),
+    h AS (
       SELECT year, month, sum(h) h, sum(hm) hm, sum(m) m, sum(v_snpp) v_snpp, sum(v_n20) v_n20
       FROM '{APP}/harm.parquet' JOIN sel USING (cell) GROUP BY ALL),
     fl_all AS (
-      SELECT month, sum(b_ta) b_ta, sum(b_t) b_t FROM '{APP}/floor.parquet' JOIN sel USING (cell) GROUP BY ALL),
+      SELECT month, sum(b_ta) b_ta, sum(b_t) b_t, coalesce(sum(b_ta) FILTER (WHERE cell IN (SELECT cell FROM lg)), 0) b_ta_l
+      FROM '{APP}/floor.parquet' JOIN sel USING (cell) GROUP BY ALL),
     fl_used AS (  -- floor applies only where MODIS saw nothing in that cell-month
-      SELECT year, month, sum(b_ta) b_ta, sum(b_t) b_t
+      SELECT year, month, sum(b_ta) u_ta, sum(b_t) u_t, coalesce(sum(b_ta) FILTER (WHERE cell IN (SELECT cell FROM lg)), 0) u_ta_l
       FROM '{APP}/harm.parquet' JOIN sel USING (cell) JOIN '{APP}/floor.parquet' USING (cell, month)
       WHERE m > 0 GROUP BY ALL)
     SELECT mo.year, mo.month, mo.src,
       coalesce(h.h, 0) AS h_obs,
-      CASE WHEN mo.src = 'MT'  THEN coalesce(fa.b_t, 0)  - coalesce(fu.b_t, 0)
-           WHEN mo.src = 'MTA' THEN coalesce(fa.b_ta, 0) - coalesce(fu.b_ta, 0) ELSE 0 END AS h_floor,
-      coalesce(h.hm, 0) + greatest(CASE WHEN mo.src = 'MT' THEN coalesce(fa.b_t, 0) - coalesce(fu.b_t, 0)
-                                        ELSE coalesce(fa.b_ta, 0) - coalesce(fu.b_ta, 0) END, 0) AS modis_eq,
+      CASE WHEN mo.src = 'MT'  THEN coalesce(fa.b_t, 0)  - coalesce(fu.u_t, 0)
+           WHEN mo.src = 'MTA' THEN coalesce(fa.b_ta, 0) - coalesce(fu.u_ta, 0)
+           WHEN mo.src = 'NN'  THEN coalesce(fa.b_ta_l, 0) - coalesce(fu.u_ta_l, 0) ELSE 0 END AS h_floor,
+      coalesce(h.hm, 0) + greatest(CASE WHEN mo.src = 'MT' THEN coalesce(fa.b_t, 0) - coalesce(fu.u_t, 0)
+                                        WHEN mo.src = 'MTA' THEN coalesce(fa.b_ta, 0) - coalesce(fu.u_ta, 0)
+                                        ELSE coalesce(fa.{eq_ta}, 0) - coalesce(fu.{eq_u}, 0) END, 0) AS modis_eq,
       coalesce(h.m, 0) AS modis, coalesce(h.v_snpp, 0) AS viirs_snpp, coalesce(h.v_n20, 0) AS viirs_noaa20
     FROM '{APP}/months.parquet' mo
     LEFT JOIN h USING (year, month) LEFT JOIN fl_all fa USING (month) LEFT JOIN fl_used fu USING (year, month)
@@ -125,7 +135,7 @@ def monthly(cells):
 
 
 # Uncertainty of harmonized months from the 2019-2024 hold-out (median |log error| -> factor)
-UNCERT = {"MT": 0.27, "MTA": 0.21, "VS": 0.0, "VN": 0.09}
+UNCERT = {"MT": 0.27, "MTA": 0.21, "NN": 0.18, "VS": 0.0, "VN": 0.09}
 
 
 def calendar(area, start="2000-11", end=None, baseline=(2001, 2025)):
@@ -231,4 +241,6 @@ def meta():
     m["first_month"] = f"{int(mo.year.iloc[0])}-{int(mo.month.iloc[0]):02d}"
     m["last_month"] = f"{int(mo.year.iloc[-1])}-{int(mo.month.iloc[-1]):02d}"
     m["source_labels"] = SRC_LABEL
+    if (APP / "nn.json").exists():
+        m["nn"] = json.loads((APP / "nn.json").read_text())
     return m

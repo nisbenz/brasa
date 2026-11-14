@@ -21,10 +21,13 @@ const PRESETS = [
 const SRC_TXT = {
   MT: 'Estimated from MODIS Terra alone',
   MTA: 'Estimated from MODIS Terra and Aqua',
+  NN: 'Estimated from MODIS Terra and Aqua by the U-Net ensemble',
   VS: 'Observed by VIIRS on Suomi NPP',
   VN: 'Observed by VIIRS on NOAA-20, standing in during a Suomi NPP outage',
 };
-const isHarm = s => s === 'MT' || s === 'MTA';
+const isHarm = s => s === 'MT' || s === 'MTA' || s === 'NN';
+let lenis = null;  // smooth scroll, set up in initScroll
+let stepWatch = null;  // method-step observer, see watchSteps
 
 /* ---------- theme ---------- */
 const theme = () => document.documentElement.dataset.theme;
@@ -216,6 +219,7 @@ function renderReading() {
   $('#areaKm').textContent = s.area_km2 ? `${fmt(s.area_km2)} km² of grid` : '';
   $('#periodTxt').textContent = `${ymLabel(state.start)} to ${ymLabel(state.end)}`;
   $('#cellsTxt').textContent = s.n_cells ? `${fmt(s.n_cells)} cells of 0.25° (about 25 km)` : '';
+  renderTelemetry(s);
   if (!s.total) { $('#reading').innerHTML = '<p>No fires were detected here in this period.</p>'; return; }
   if (s.peak_month && s.season_months.length === 1) out.push(`Burning here is concentrated in <strong>${MONTH[s.peak_month - 1]}</strong>; no other month comes close to half of it.`);
   else if (s.peak_month) out.push(s.season_months.length >= 8
@@ -231,6 +235,26 @@ function renderReading() {
   const t = s.trend_pct_per_decade;
   if (t != null && Math.abs(t) >= 3) out.push(`Across the years shown, burning has <strong class="${t >= 0 ? 'up' : 'dn'}">${t >= 0 ? 'risen' : 'fallen'} ${Math.abs(Math.round(t))}%</strong> per decade.`);
   $('#reading').innerHTML = out.map(x => `<p>${x}</p>`).join('');
+}
+function renderTelemetry(s) {
+  const el = $('#telemetry');
+  if (!s.total) { el.innerHTML = ''; return; }
+  const t = s.trend_pct_per_decade;
+  const cells = [
+    ['Hotspots in this period', `<span data-count="${Math.round(s.total)}">${fmt(s.total)}</span>`],
+    ['Peak month', s.peak_month ? MONTH[s.peak_month - 1] : '–'],
+    ['Worst year', s.worst_year ? `${s.worst_year}<small>${big(s.worst_year_total)} hotspots</small>` : '–'],
+    ['Trend per decade', t == null ? '–' : `<span class="${t >= 0 ? 'up' : 'dn'}">${t >= 0 ? '+' : '−'}<span data-count="${Math.abs(Math.round(t))}">${Math.abs(Math.round(t))}</span>%</span>`],
+  ];
+  el.innerHTML = cells.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+  $$('[data-count]', el).forEach(countUp);
+}
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+function countUp(el) {
+  const to = +el.dataset.count; if (reduceMotion.matches || !to) return;
+  const t0 = performance.now(), dur = 900;
+  const tick = now => { const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 4); el.textContent = fmt(to * e); if (k < 1) requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
 }
 const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th','st','nd','rd'][n % 10] || 'th');
 
@@ -398,7 +422,7 @@ function renderClim() {
   const yl = yr.map((m, i) => `${i ? 'L' : 'M'}${x(m - 1)},${y(ym[m])}`).join('');
   $('#clim').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Typical year: median month and the range holding 8 years in 10, with ${state.year} traced">${yAxis(max)}
     ${MN.map((m, i) => `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${m}</text>`).join('')}
-    <path d="${band}" style="fill:var(--rule)" opacity=".55"/><path d="${line(r => r.median)}" fill="none" style="stroke:var(--ink)" stroke-width="2"/>
+    <path d="${band}" style="fill:var(--band)"/><path d="${line(r => r.median)}" fill="none" style="stroke:var(--ink)" stroke-width="2"/>
     ${yl ? `<path d="${yl}" fill="none" style="stroke:var(--scar)" stroke-width="2.6"/>${yr.map(m => `<circle cx="${x(m - 1)}" cy="${y(ym[m])}" r="3.6" style="fill:var(--scar)"><title>${MONTH[m - 1]} ${state.year}: ${fmt(ym[m])}</title></circle>`).join('')}` : ''}</svg>`;
   $('#yrKey').textContent = state.year ? `The orange line is ${state.year}.` : '';
 }
@@ -409,8 +433,8 @@ function renderAnnual() {
   const bars = ys.map((r, i) => {
     const est = cnt[r.year] && cnt[r.year].h > cnt[r.year].n / 2, partial = cnt[r.year] && cnt[r.year].n < 12;
     const hh = Math.max((H - P.t - P.b) * r.hotspots / max, 0), xx = P.l + i * bw + bw * .14, w = bw * .72, yy = H - P.b - hh;
-    const fill = r.year === worst ? 'var(--seq-7)' : r.year === state.year ? 'var(--scar)' : 'var(--seq-4)';
-    return `<g><title>${r.year}: ${fmt(r.hotspots)} hotspots${est ? ', estimated from MODIS' : ''}${partial ? `, ${cnt[r.year].n} months only` : ''}</title><rect x="${xx}" y="${yy}" width="${w}" height="${hh}" style="fill:${fill}${partial ? ';opacity:.45' : ''}"/>${est ? `<rect x="${xx}" y="${yy}" width="${w}" height="${hh}" fill="url(#bh)"/>` : ''}${r.year === worst ? `<text x="${xx + w / 2}" y="${yy - 6}" text-anchor="middle" style="fill:var(--ink);font-weight:700">${r.year}</text>` : ''}</g>`;
+    const fill = r.year === state.year ? 'var(--scar)' : r.year === worst ? 'var(--ink-3)' : 'var(--bar)';
+    return `<g><title>${r.year}: ${fmt(r.hotspots)} hotspots${est ? ', estimated from MODIS' : ''}${partial ? `, ${cnt[r.year].n} months only` : ''}</title><rect x="${xx}" y="${yy}" width="${w}" height="${hh}" style="fill:${fill}${partial ? ';opacity:.45' : ''}"/>${est ? `<rect x="${xx}" y="${yy}" width="${w}" height="${hh}" fill="url(#bh)"/>` : ''}${r.year === worst ? `<text x="${xx + w / 2}" y="${yy - 6}" text-anchor="middle" style="fill:var(--ink-2)">Worst, ${r.year}</text>` : ''}</g>`;
   }).join('');
   const step = ys.length > 14 ? 5 : ys.length > 7 ? 2 : 1;
   const ticks = ys.map((r, i) => r.year % step === 0 ? `<text x="${P.l + (i + .5) * bw}" y="${H - 8}" text-anchor="middle">${r.year}</text>` : '').join('');
@@ -440,10 +464,33 @@ $('#csvPts').onclick = () => {
 };
 
 /* ---------- method dialog ---------- */
-const how = $('#how');
-$('#helpBtn').onclick = () => how.showModal();
-$('#howClose').onclick = () => how.close();
-how.addEventListener('click', e => { if (e.target === how) how.close(); });
+$$('[data-how]').forEach(b => b.onclick = () => scrollToEl($('#method')));
+// When the U-Net ensemble is loaded (pipeline/08_merge_unet.py writes app/nn.json), the method section
+// describes it; otherwise it keeps describing the ratio model the data actually comes from.
+const NN_STEPS = [
+  ['Count fires on a grid', 'Count fires on a 25 km grid.', 'Every detection lands in a 0.25° cell and a month.',
+    'Only presumed vegetation fires are kept: volcanoes, gas flares and other fixed heat sources are removed, as are low-confidence detections.'],
+  ['Describe each month', 'Describe every cell-month with 15 MODIS channels.', 'Not just how many fires, but what kind.',
+    'Counts with and without low-confidence detections, Terra and night counts, a fire-radiative-power histogram with its total and peak, fire days, pixel size, confidence and brightness. The previous and next months come along, with latitude, longitude and a MODIS-only climatology, so nothing from VIIRS leaks in and the model can run on years before VIIRS existed.'],
+  ['A U-Net reads the map', 'A U-Net reads the whole map, not one cell at a time.', 'It sees about 17° around every cell.',
+    'The network starts from the global ratio of about 4.1 VIIRS hotspots per MODIS hotspot and learns where and when to depart from it, including the small fires VIIRS catches where MODIS saw nothing. It was trained on 2012–2017, when both satellites flew, with a negative-binomial loss per cell and a term that keeps 2° regional totals right.'],
+  ['Average with an MLP', 'Average it with a per-pixel network.', 'The two make different mistakes.',
+    'A small MLP sees the same channels plus neighbourhood sums but no learned map context. The U-Net under-predicts the smallest fires, the MLP is nearly unbiased, and their mean beats both. The 50/50 weight was fixed before looking at the test years.'],
+  ['Keep the ratio model where it wins', 'Keep the ratio model where it is still better.', 'And observed VIIRS from 2012.',
+    'In Brazil the ratio model is more accurate (country error 0.054 against 0.078), and the ensemble does not cover the Terra-only months before July 2002, so both stay on it. From February 2012 the calendar shows what VIIRS observed, with NOAA-20 filling the two Suomi NPP outages.'],
+];
+function renderMethod() {
+  const nn = state.meta.nn; if (!nn) return;
+  $('#howLede').textContent = 'VIIRS sees about four times as many hotspots as MODIS, so a neural network trained where both satellites flew rewrites the MODIS years in VIIRS terms.';
+  $('#tlCal').textContent = 'training 2012–2017, test 2019–2024';
+  $('#howNav').innerHTML = NN_STEPS.map((x, i) => `<li data-step="${i}">${x[0]}</li>`).join('');
+  $('#howSteps').innerHTML = NN_STEPS.map((x, i) => `<li data-step="${i}"><h3><span class="hl">${x[1]}</span> <span class="mute">${x[2]}</span></h3><p>${x[3]}</p></li>`).join('');
+  $('#valSub').textContent = 'Every model was trained on 2012–2018 at most, then asked to predict 2019–2024 from MODIS alone and compared with what VIIRS actually saw. Lower error is better; the sign column is how often a strong anomaly at 5° points the right way. The last row compares two VIIRS satellites with each other: no conversion can do better than that.';
+  const f = x => x == null ? '–' : (+x).toFixed(3);
+  $('#valTable').innerHTML = `<tr><th>Method</th><th>Error, 1° boxes</th><th>Error, 5° boxes</th><th>Error, countries</th><th>Anomaly sign, 5°</th></tr>`
+    + nn.holdout.map(r => `<tr class="${r.key === 'ens' ? 'best' : r.key === 'ceil' ? 'ceil' : ''}"><td>${esc(r.method)}</td><td>${f(r.e1)}</td><td>${f(r.e5)}</td><td>${f(r.ec)}</td><td>${f(r.sign5)}</td></tr>`).join('');
+  watchSteps();
+}
 function renderValidation() {
   const v = (state.meta.validation || []).filter(r => /^M0|M3 \+floor \(a=20\)|CEILING/.test(r.model) && r.scale !== '1deg');
   const name = m => /^M0/.test(m) ? 'One global ratio (about 4×)' : /CEILING/.test(m) ? 'Two VIIRS satellites, best possible' : 'Brasa';
@@ -456,6 +503,7 @@ function renderValidation() {
 /* ---------- start ---------- */
 (async function init() {
   $('#themeBtn').setAttribute('aria-label', theme() === 'night' ? 'Switch to day theme' : 'Switch to night theme');
+  initScroll();
   if (typeof L !== 'undefined') initMap(); else $('#map').innerHTML = '<p class="hint" style="padding:16px">The map could not load. Use Coordinates, Radius or Country instead.</p>';
   try {
     const [meta, countries] = await Promise.all([api('/api/meta').then(r => r.json()), api('/api/countries').then(r => r.json())]);
@@ -464,7 +512,8 @@ function renderValidation() {
     for (const id of ['#mFrom', '#mTo']) { $(id).min = meta.first_month; $(id).max = meta.last_month; }
     $('#mFrom').value = state.start; $('#mTo').value = state.end;
     $('#countryList').innerHTML = countries.map(c => `<option value="${esc(c)}">`).join('');
-    renderValidation();
+    renderValidation(); renderMethod();
+    $('#liveTag span').textContent = `Record to ${ymLabel(meta.last_month)}`; $('#liveTag').hidden = false;
     $('#presets button').click();
     init3d();
   } catch (e) {
@@ -486,6 +535,9 @@ function globeStep() {
   if (state.gmode === 'year') $('#gNote').textContent = state.gcol === 'anom'
     ? 'Each column is one 1° cell, about 110 km across. Height shows that year\'s hotspots; colour compares them with the cell\'s own median year, 2001–2025: red above usual, blue below.'
     : 'Each column is one 1° cell, about 110 km across. Its height and colour show the hotspots of the whole year. Years before 2012 are converted from MODIS, so every year is on the same scale.';
+  const anom = state.gmode === 'year' && state.gcol === 'anom', gs = $('.g-scale');
+  gs.classList.toggle('anom', anom);
+  $$('span', gs).forEach((x, i) => x.textContent = anom ? ['Below usual', 'Above usual'][i] : ['Fewer', 'More hotspots'][i]);
   $('#gRange').value = state.gstep;
   $('#gRange').setAttribute('aria-valuetext', r.label);
 }
@@ -514,7 +566,7 @@ async function init3d() {
       onPick: (lat, lon) => {
         setTab('point'); $('#pLat').value = lat; $('#pLon').value = lon; $('#pRad').value = 100;
         setArea({ type: 'point', lat, lon, radius_km: 100 }, `100 km around ${lat.toFixed(1)}°, ${lon.toFixed(1)}°`);
-        $('#record').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+        scrollToEl($('#record'));
       },
       onHover: h => {
         if (!h) { $('#tip').hidden = true; return; }
@@ -527,6 +579,7 @@ async function init3d() {
     $('#globe').innerHTML = `<p class="hint" style="padding:24px">The 3D globe could not start (${esc(e.message)}). Everything else on the page still works.</p>`;
   }
   $$('#globeMode button').forEach(b => b.onclick = () => { stopPlay(); if (globe) setGMode(b.dataset.gmode); });
+  $('#gIn').onclick = () => globe && globe.zoom(.8); $('#gOut').onclick = () => globe && globe.zoom(1.25);
   $$('#globeColour button').forEach(b => b.onclick = () => { state.gcol = b.dataset.gcol; $$('#globeColour button').forEach(x => x.setAttribute('aria-checked', String(x === b))); globeStep(); });
   $('#gRange').oninput = e => { stopPlay(); state.gstep = +e.target.value; globeStep(); };
   $('#gPlay').onclick = () => {
@@ -558,8 +611,8 @@ async function init3d() {
 
 /* ---------- right now: fire-danger-style dial + outlook ---------- */
 const BANDS = [
-  { name: 'Very low', c: 'var(--div-1)' }, { name: 'Low', c: 'var(--div-3)' }, { name: 'Normal', c: 'var(--rule)' },
-  { name: 'High', c: 'var(--div-6)' }, { name: 'Very high', c: 'var(--div-8)' },
+  { name: 'Very low', c: 'var(--fd-1)' }, { name: 'Low', c: 'var(--fd-2)' }, { name: 'Normal', c: 'var(--fd-3)' },
+  { name: 'High', c: 'var(--fd-4)' }, { name: 'Very high', c: 'var(--fd-5)' },
 ];
 function renderNow() {
   const d = state.data, l = d.summary.latest, el = $('#now');
@@ -570,17 +623,17 @@ function renderNow() {
   const cx = 110, cy = 104, r1 = 58, r2 = 92;
   const arc = (a0, a1) => { const p = (r, a) => `${(cx + r * Math.cos(a)).toFixed(1)},${(cy - r * Math.sin(a)).toFixed(1)}`;
     return `M${p(r2, a0)}A${r2},${r2} 0 0 1 ${p(r2, a1)}L${p(r1, a1)}A${r1},${r1} 0 0 0 ${p(r1, a0)}Z`; };
-  const seg = BANDS.map((b, i) => { const a0 = Math.PI * (1 - i / 5), a1 = Math.PI * (1 - (i + 1) / 5) + .001; return `<path d="${arc(a0, a1)}" style="fill:${b.c}" stroke="var(--paper)" stroke-width="2"/>`; }).join('');
-  const na = Math.PI * (1 - Math.min(Math.max(pos, .02), .98)), nx = cx + 86 * Math.cos(na), ny = cy - 86 * Math.sin(na);
+  const seg = BANDS.map((b, i) => { const a0 = Math.PI * (1 - i / 5), a1 = Math.PI * (1 - (i + 1) / 5) + .001; return `<path d="${arc(a0, a1)}" style="fill:${b.c}" style="stroke:var(--panel)" stroke-width="3"/>`; }).join('');
+  const deg = (Math.min(Math.max(pos, .02), .98) - .5) * 180;
   // outlook: the three months after the latest one, from 2001-2025 medians
   const clim = {}; d.climatology.forEach(c => clim[c.month] = c);
   const peak = Math.max(...d.climatology.map(c => c.median), 1);
   const nxt = [1, 2, 3].map(k => ((l.month - 1 + k) % 12) + 1);
   const word = m => { const v = clim[m] ? clim[m].median : 0, f = v / peak; return f >= .5 ? 'fire season' : f >= .2 ? 'building' : 'quiet'; };
   el.innerHTML = `<div class="dial"><svg viewBox="0 0 220 122" role="img" aria-label="${MONTH[l.month - 1]} ${l.year} rates ${band.name}: ${ordinal(l.rank)} highest of ${l.of} ${MONTH[l.month - 1]}s since 2000.">
-      ${seg}<line x1="${cx}" y1="${cy}" x2="${nx.toFixed(1)}" y2="${ny.toFixed(1)}" style="stroke:var(--ink)" stroke-width="3.5" stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="7" style="fill:var(--ink)"/>
+      ${seg}<g class="needle" style="--deg:${deg.toFixed(1)}deg"><path d="M${cx - 5},${cy} L${cx},${cy - 88} L${cx + 5},${cy} Z" style="fill:var(--ink)"/></g><circle cx="${cx}" cy="${cy}" r="8" style="fill:var(--ink)"/><circle cx="${cx}" cy="${cy}" r="3" style="fill:var(--panel)"/>
     </svg><div class="dial-t"><span class="dial-b">${band.name}</span><span>${MONTH[l.month - 1]} ${l.year} ranks ${ordinal(l.rank)} of ${l.of}</span></div></div>
-    <div class="outlook"><h3>Coming up</h3><ol>${nxt.map(m => `<li><span class="om">${MONTH[m - 1]}</span><span class="ov">${fmt(clim[m] ? clim[m].median : 0)}</span><span class="ow w-${word(m).replace(' ', '-')}">${word(m)}</span></li>`).join('')}</ol>
+    <div class="outlook"><h3>Coming up</h3><ol>${nxt.map(m => `<li><span class="om">${MONTH[m - 1]}</span><span class="ov">${fmt(clim[m] ? clim[m].median : 0)}</span><span class="ow w-${word(m).replace(' ', '-')}"><i aria-hidden="true"></i>${word(m)}</span></li>`).join('')}</ol>
     <p class="hint">Usual hotspots for each month, 2001–2025 median. The dial ranks the latest month against the same month in every other year.</p></div>`;
 }
 
@@ -597,7 +650,7 @@ function renderAgree() {
   const line = (ys, f) => ys.map((y, i) => `${i ? 'L' : 'M'}${x(y).toFixed(1)},${yv(f(by[y])).toFixed(1)}`).join('');
   const vy = years.filter(y => y >= 2012);
   const ov0 = Math.max(2012, years[0]), ov1 = years[years.length - 1];
-  const band = ov1 >= 2012 ? `<rect x="${x(ov0) - 6}" y="${P.t}" width="${x(ov1) - x(ov0) + 12}" height="${H - P.t - P.b}" style="fill:var(--paper-2)"/><text x="${x(ov0) + 4}" y="${P.t + 16}" style="fill:var(--ink);font-weight:600">Both satellites flying</text>` : '';
+  const band = ov1 >= 2012 ? `<rect x="${x(ov0) - 6}" y="${P.t}" width="${x(ov1) - x(ov0) + 12}" height="${H - P.t - P.b}" style="fill:var(--paper-2)"/><text x="${x(ov0) + 4}" y="${P.t + 16}" style="fill:var(--ink-3)">Both satellites flying</text>` : '';
   let grid = '';
   for (let i = 0; i <= 4; i++) { const v = max * i / 4, y = yv(v); grid += `<line x1="${P.l}" x2="${W - P.r}" y1="${y}" y2="${y}" style="stroke:var(--rule)" stroke-width="${i ? .8 : 1.4}"/><text x="${P.l - 8}" y="${y + 4}" text-anchor="end">${kfmt(v)}</text>`; }
   const step = years.length > 14 ? 5 : years.length > 7 ? 2 : 1;
@@ -617,7 +670,79 @@ function renderAgree() {
     stat = `<p class="agree-big"><strong>${Math.round(medd * 100)}%</strong> typical yearly gap</p>
       <p>Across ${ov.length} overlap years, converted MODIS lands within ${Math.round(medd * 100)}% of what VIIRS saw in a typical year, ${Math.round(worst * 100)}% at worst.</p>
       <p>Raw MODIS counts here are about <strong>${raw.toFixed(1)}×</strong> smaller than VIIRS. That is the gap the conversion closes.</p>
-      <p class="hint">These overlap years were also used to fit the conversion. For a fair score on years it never saw, open "How the numbers are made".</p>`;
+      <p class="hint">${state.meta.nn ? 'The U-Net was trained on 2012–2017 and tuned on 2018; from 2019 these are years it never saw.' : 'These overlap years were also used to fit the conversion. For a fair score on years it never saw, see the Method section below.'}</p>`;
   }
   $('#agreeSide').innerHTML = `<ul class="agree-key"><li><i class="k-v"></i>VIIRS, observed</li><li><i class="k-e"></i>MODIS, converted to VIIRS terms</li><li><i class="k-m"></i>MODIS, raw counts</li></ul>${stat}`;
+}
+
+/* ---------- motion: smooth scroll, reveals, the stage, method steps ---------- */
+// method: the step in the middle of the screen lights up its label
+function watchSteps() {
+  if (stepWatch) stepWatch.disconnect();
+  const steps = $$('.steps li'), labels = $$('.how-nav li');
+  stepWatch = new IntersectionObserver(es => es.forEach(e => {
+    if (!e.isIntersecting) return;
+    const k = e.target.dataset.step;
+    steps.forEach(x => x.classList.toggle('on', x.dataset.step === k));
+    labels.forEach(x => x.classList.toggle('on', x.dataset.step === k));
+  }), { rootMargin: '-45% 0px -45% 0px' });
+  steps.forEach(x => stepWatch.observe(x));
+  labels.forEach(l => l.onclick = () => scrollToEl(steps[+l.dataset.step]));
+}
+
+function scrollToEl(el) {
+  if (!el) return;
+  if (lenis) lenis.scrollTo(el, { offset: -72, duration: 1.4 });
+  else el.scrollIntoView({ behavior: reduceMotion.matches ? 'auto' : 'smooth' });
+}
+function initScroll() {
+  const reduced = reduceMotion.matches;
+  // inertial page scroll; panels that scroll themselves opt out with data-lenis-prevent
+  if (!reduced && window.Lenis) {
+    lenis = new Lenis({ lerp: .09, wheelMultiplier: .9, smoothWheel: true });
+    const raf = t => { lenis.raf(t); requestAnimationFrame(raf); };
+    requestAnimationFrame(raf);
+  }
+  document.addEventListener('click', e => {
+    const a = e.target.closest('a[href^="#"]'); if (!a) return;
+    const el = $(a.getAttribute('href')); if (!el) return;
+    e.preventDefault(); scrollToEl(el);
+  });
+
+  // headline: words rise out of a blur, one after another
+  $$('.split').forEach(h => {
+    let i = 0;
+    $$(':scope > span', h).forEach(part => {
+      part.innerHTML = part.textContent.trim().split(/\s+/).map(w => `<span class="w" style="--d:${i++ * 55}ms">${esc(w)}</span>`).join(' ');
+    });
+  });
+  requestAnimationFrame(() => document.documentElement.classList.add('loaded'));
+
+  // sections fade up from a blur as they enter, children staggered
+  const io = new IntersectionObserver(es => es.forEach(e => {
+    if (!e.isIntersecting) return;
+    e.target.classList.add('in'); io.unobserve(e.target);
+  }), { rootMargin: '0px 0px -12% 0px', threshold: .01 });
+  $$('[data-reveal]').forEach(el => io.observe(el));
+
+  // the stage tilts up and settles as it scrolls into place
+  const stage = $('#stage'), wrap = $('.stage-wrap');
+  let queued = false;
+  const tick = () => {
+    queued = false;
+    const r = wrap.getBoundingClientRect(), vh = innerHeight;
+    const p = Math.min(1, Math.max(0, (vh - r.top) / (vh * .75)));
+    stage.style.setProperty('--p', p.toFixed(3));
+  };
+  if (!reduced) { addEventListener('scroll', () => { if (!queued) { queued = true; requestAnimationFrame(tick); } }, { passive: true }); tick(); }
+
+  watchSteps();
+
+  // nav follows the section in view
+  const links = $$('.nav-links a');
+  const secs = links.map(a => $(a.getAttribute('href'))).filter(Boolean);
+  const nio = new IntersectionObserver(es => {
+    es.forEach(e => { if (e.isIntersecting) links.forEach(a => a.setAttribute('aria-current', String(a.getAttribute('href') === '#' + e.target.id))); });
+  }, { rootMargin: '-45% 0px -50% 0px' });
+  secs.forEach(s => nio.observe(s));
 }

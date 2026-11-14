@@ -6,7 +6,8 @@ Writes <derived>/app/globe.bin (little-endian):
   int16  lat_idx[n]  (row 0 = 90S..89S)      int16 lon_idx[n] (col 0 = 180W..179W)
   float32 clim[n*12]       mean VIIRS-equivalent hotspots per calendar month, 2001-2025
   float32 annual[n*n_years] VIIRS-equivalent hotspots per year
-Values include the small-fire floor for MODIS-era months, like the calendar API.
+Values include the small-fire floor for MODIS-era months, like the calendar API. With the U-Net
+ensemble loaded (08_merge_unet.py), 'NN' months add the floor only in the legacy cells that stay on M3.
 """
 import struct, sys
 from pathlib import Path
@@ -15,22 +16,27 @@ import duckdb, numpy as np
 d = Path(sys.argv[1]); A = d / "app"
 Y0, Y1 = 2001, 2025
 con = duckdb.connect()
+LEG = f"'{A}/legacy_cells.parquet'" if (A / "legacy_cells.parquet").exists() else "(SELECT NULL::INTEGER AS cell WHERE false)"
 P1 = "((cell // 1440) // 4) * 360 + (cell % 1440) // 4"
 df = con.sql(f"""
 WITH h AS (
   SELECT {P1} AS p1, year, month, sum(h) AS h FROM '{A}/harm.parquet' GROUP BY ALL),
 fa AS (
-  SELECT {P1} AS p1, month, sum(b_ta) AS b_ta, sum(b_t) AS b_t FROM '{A}/floor.parquet' GROUP BY ALL),
+  SELECT {P1} AS p1, month, sum(b_ta) AS b_ta, sum(b_t) AS b_t,
+    coalesce(sum(b_ta) FILTER (WHERE cell IN (SELECT cell FROM {LEG})), 0) AS b_l
+  FROM '{A}/floor.parquet' GROUP BY ALL),
 fu AS (
-  SELECT {P1} AS p1, year, month, sum(f.b_ta) AS b_ta, sum(f.b_t) AS b_t
+  SELECT {P1} AS p1, year, month, sum(f.b_ta) AS b_ta, sum(f.b_t) AS b_t,
+    coalesce(sum(f.b_ta) FILTER (WHERE cell IN (SELECT cell FROM {LEG})), 0) AS b_l
   FROM '{A}/harm.parquet' x JOIN '{A}/floor.parquet' f USING (cell, month)
-  WHERE x.src IN ('MT','MTA') AND x.m > 0 GROUP BY ALL),
+  WHERE x.src IN ('MT','MTA','NN') AND x.m > 0 GROUP BY ALL),
 keys AS (  -- every (p1, year, month) that has fire or a floor
   SELECT p1, year, month FROM h
-  UNION SELECT fa.p1, mo.year, mo.month FROM fa JOIN '{A}/months.parquet' mo USING (month) WHERE mo.src IN ('MT','MTA'))
+  UNION SELECT fa.p1, mo.year, mo.month FROM fa JOIN '{A}/months.parquet' mo USING (month) WHERE mo.src IN ('MT','MTA','NN'))
 SELECT k.p1, k.year, k.month,
   coalesce(h.h,0) + CASE mo.src WHEN 'MT'  THEN greatest(coalesce(fa.b_t,0)  - coalesce(fu.b_t,0), 0)
-                                WHEN 'MTA' THEN greatest(coalesce(fa.b_ta,0) - coalesce(fu.b_ta,0), 0) ELSE 0 END AS v
+                                WHEN 'MTA' THEN greatest(coalesce(fa.b_ta,0) - coalesce(fu.b_ta,0), 0)
+                                WHEN 'NN'  THEN greatest(coalesce(fa.b_l,0)  - coalesce(fu.b_l,0), 0) ELSE 0 END AS v
 FROM keys k JOIN '{A}/months.parquet' mo USING (year, month)
 LEFT JOIN h USING (p1, year, month) LEFT JOIN fa USING (p1, month) LEFT JOIN fu USING (p1, year, month)
 WHERE k.year BETWEEN {Y0} AND {Y1}
