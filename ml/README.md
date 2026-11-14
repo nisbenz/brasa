@@ -74,6 +74,26 @@ Smoke test (CPU, seconds, 8°×8° Cerrado window):
 .venv/bin/python -I ml/evaluate.py ~/firms/derived ~/firms/derived/ml/smoke /tmp/smoke.pt --train 2016-2018 --test 2019-2020 --importance --imp-months 6
 ```
 
+## Residual check: is there signal left? (`residual_check.py`, no training, ~25 s)
+
+```bash
+.venv/bin/python -I ml/residual_check.py ~/firms/derived
+```
+
+Brasa M3 is fit on 2012–2018. On held-out 2022–2024 cell-months where MODIS saw fire:
+
+- **Residual variance is 0.239.** About 0.050 of that is instrument noise, measured as the
+  NOAA-20 vs S-NPP disagreement.
+- **The per-cell MODIS descriptors explain very little of it.** The best single one (fire days)
+  explains 2.7%, and the top three together 3.5%. Bin means come from 2019–2021 and are scored
+  on 2022–2024.
+- **A lookup correction built from them makes regional error worse.** At 5° it goes from 0.305
+  to 0.314; for countries, from 0.255 to 0.262.
+
+So nearly all of Brasa's remaining error is invisible to the per-cell MODIS record. The U-Net's
+only remaining edge is spatial and temporal context. Expect small gains at best, and extend this
+check with neighbourhood sums before spending GPU time.
+
 ## Known limits / next steps
 
 - **Terra-only era (2000-11 → 2002-06).** Not handled. The model is trained on Terra+Aqua
