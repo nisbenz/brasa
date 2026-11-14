@@ -143,8 +143,10 @@ def regional_log_loss(y, mu, k=8):
 
 
 @torch.no_grad()
-def predict_month(model, stack, t, device, tile=256, halo=16, override=None):
-    """Expected VIIRS count map (H, W) for month index t, tiled with overlap."""
+def predict_month(model, stack, t, device, tile=256, halo=48, override=None):
+    """Expected VIIRS count map (H, W) for month index t, tiled with overlap.
+    halo must cover most of the ~35-cell receptive radius: at 16 the tile seams shifted
+    global totals by 1.8%."""
     H, W = stack.shape
     x = stack.inputs(t, override=override)
     tile = min(tile, -(-max(H, W) // 8) * 8)
@@ -158,3 +160,38 @@ def predict_month(model, stack, t, device, tile=256, halo=16, override=None):
             lm, _ = model(xb)
             out[r:r + tile, c:c + tile] = torch.exp(lm[0, halo:-halo, halo:-halo]).cpu().numpy()
     return out[:H, :W]
+
+
+# --- per-pixel context baseline (ml/context_baseline.py, ml/predict_ensemble.py) -------------------
+
+def _box(m, k):
+    """Sum over a k x k neighbourhood, zero padded."""
+    t = torch.from_numpy(m)[None, None]
+    return (F.avg_pool2d(t, k, 1, k // 2, count_include_pad=True) * k * k)[0, 0].numpy()
+
+
+def context_features(stack, t):
+    """(H*W, 33) hand-built features and (H*W,) log baseline for month index t: MODIS count summed
+    over 1/3/9/25-cell boxes for t-1, t, t+1, the other 14 current-month channels, static maps,
+    calendar climatology and season. Same residual form as the U-Net: log mu = base + g(features)."""
+    X = stack.arr["X"]; H, W = stack.shape
+    cols = []
+    for dt in (-1, 0, 1):
+        u = stack._neighbour(t, dt) if dt else t
+        M = np.zeros((H, W), np.float32) if u is None else np.expm1(X[u, 0].astype(np.float32))
+        cols += [np.log1p(_box(M, k) if k > 1 else M) for k in (1, 3, 9, 25)]
+    xc = X[t].astype(np.float32)
+    cols += list(xc[1:])
+    mo = stack.months[t][1]
+    cols += list(np.array(stack.arr["S"], np.float32)) + [np.array(stack.arr["CL"][mo - 1], np.float32)]
+    ang = 2 * np.pi * (mo - 0.5) / 12
+    cols += [np.full((H, W), np.sin(ang), np.float32), np.full((H, W), np.cos(ang), np.float32)]
+    base = np.log(UNet.K0 * np.expm1(xc[0]) + UNet.B0).reshape(-1)
+    return np.stack(cols, -1).reshape(-1, len(cols)), base
+
+
+def context_net(kind, d):
+    """g(features): linear, or the 2 x 128 MLP used in the U-Net + MLP ensemble."""
+    if kind == "linear":
+        return nn.Linear(d, 1)
+    return nn.Sequential(nn.Linear(d, 128), nn.GELU(), nn.Linear(128, 128), nn.GELU(), nn.Linear(128, 1))

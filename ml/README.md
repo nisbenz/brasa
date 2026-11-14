@@ -2,7 +2,34 @@
 
 A convolutional network that predicts VIIRS S-NPP-equivalent hotspot counts per 0.25° cell and
 month from MODIS alone. It is scored against Brasa's hierarchical-ratio model (`pipeline/harmonize.py`)
-and the NOAA-20 ceiling on the same hold-out. **Status: plumbing smoke-tested on CPU; not trained yet.**
+and the NOAA-20 ceiling on the same hold-out. **Status: trained (`model/unet.pt`) and evaluated; the
+U-Net + MLP ensemble beats Brasa M3 on every test year (results below).**
+
+## Results (hold-out 2019–2024, `ml/compare.py`)
+
+Median |log error| of monthly totals, and how often the sign of a strong anomaly is right:
+
+| | 1° | 5° | country | anomaly sign, 5° | 2025, 5° |
+|---|---|---|---|---|---|
+| Brasa M3 (refit 2012–2018) | 0.304 | 0.246 | 0.199 | 0.768 | 0.300 |
+| per-pixel MLP (`context_baseline.py`) | 0.291 | 0.245 | 0.208 | 0.851 | 0.279 |
+| U-Net (`model/unet.pt`) | 0.266 | 0.211 | 0.184 | 0.863 | 0.253 |
+| **mean of U-Net and MLP** | **0.261** | **0.203** | **0.175** | **0.867** | **0.243** |
+| NOAA-20 vs S-NPP (ceiling) | 0.163 | 0.105 | 0.087 | 0.925 | 0.099 |
+
+- Paired bootstrap over months at 5°: ensemble − Brasa −0.030 [−0.035, −0.027]; ensemble − U-Net
+  −0.014 [−0.017, −0.011]; MLP − Brasa +0.003 [−0.002, +0.006]. The 50/50 weight was fixed in
+  advance, not tuned on the test years.
+- The MLP sees the same channels plus 1/3/9/25-cell neighbourhood sums but no learned convolutions.
+  It matches the U-Net on anomaly sign but not on regional level, so the learned spatial context is
+  what buys the 5° and country gain. They err in different places (the U-Net under-predicts small
+  fires, −10.5 % bias in cells with < 1 MODIS det/yr; the MLP is near unbiased), so the mean wins.
+- Permutation importance (U-Net, 5° error increase): MODIS count +1.18, FRP total/max +0.83, MODIS
+  climatology +0.21, fire days +0.08; neighbouring months only +0.01.
+- Weak spots: **Brazil** (country error 0.078 vs 0.054 for Brasa M3) and cells where MODIS saw
+  nothing (−12 % bias). Keep Brasa M3 there, and for the Terra-only months before July 2002.
+- Run it: `ml/colab_run_model.ipynb` (or `ml/predict_ensemble.py`) writes VIIRS-equivalent counts per
+  cell-month for 2002-07 → 2025. `ml/colab_experiment.ipynb` reproduces the comparison.
 
 ## What the overlap period shows (2012–2025, `features.parquet`)
 

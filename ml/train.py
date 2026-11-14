@@ -70,13 +70,14 @@ def main():
     ap.add_argument("--val-patches", type=int, default=512)
     ap.add_argument("--lr", type=float, default=2e-3); ap.add_argument("--reg-w", type=float, default=0.3)
     ap.add_argument("--workers", type=int, default=4); ap.add_argument("--threads", type=int, default=0)
+    ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--smoke", action="store_true")
     a = ap.parse_args()
     if a.smoke:
         a.width, a.patch, a.batch, a.epochs, a.steps, a.val_patches, a.workers = 8, 32, 4, 2, 10, 8, 0
     if a.threads:
         torch.set_num_threads(a.threads)
-    torch.manual_seed(0)
+    torch.manual_seed(a.seed)
     dev = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
 
     s = Stack(a.stack)
