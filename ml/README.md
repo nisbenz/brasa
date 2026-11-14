@@ -1,133 +1,115 @@
-# Learned MODIS → VIIRS conversion (experimental)
+# Learned MODIS → VIIRS conversion
 
-A convolutional network that predicts VIIRS S-NPP-equivalent hotspot counts per 0.25° cell and
-month from MODIS alone. It is scored against Brasa's hierarchical-ratio model (`pipeline/harmonize.py`)
-and the NOAA-20 ceiling on the same hold-out. **Status: trained (`model/unet.pt`) and evaluated; the
-U-Net + MLP ensemble beats Brasa M3 on every test year (results below).**
+Neural networks that predict **VIIRS S-NPP-equivalent hotspot counts per 0.25° cell and month from
+MODIS alone**, trained on the 2012–2025 overlap and applied to 2000–2011. They are scored against
+Brasa's hierarchical-ratio model (`pipeline/harmonize.py`, "Brasa M3") and against NOAA-20, a second
+VIIRS instrument that acts as the noise ceiling.
 
-## Results (hold-out 2019–2024, `ml/compare.py`)
+Two model generations exist:
 
-Median |log error| of monthly totals, and how often the sign of a strong anomaly is right:
+| | old (`model/unet.pt`) | new / v2 (`model/unet_v2.pt`, trained with `run_colab.ipynb`) |
+|---|---|---|
+| inputs | 15 MODIS channels, Terra + Aqua combined | 30 channels: the same descriptors **per satellite**, plus local overpass time and an Aqua flag |
+| Terra-only months (2000-11 … 2002-06) | not covered | covered: trained with random Aqua dropout |
+| patch sampling | ∝ √(VIIRS count), i.e. chosen by the target | ∝ √(MODIS count): chosen by the input, so E[y \| x] is not biased |
+| normalisation | GroupNorm over the tile (output depends on tile size / padding) | per-pixel LayerNorm (tiled inference = patch training) |
+| regional loss | 2° blocks | 1°, 2° and 5° blocks |
+| model selection | NB loss on one year (2018) | 5° error of full-map predictions; blocked year-fold CV ensemble |
+| file | one network | one `.pt` holding every ensemble member |
 
-| | 1° | 5° | country | anomaly sign, 5° | 2025, 5° |
-|---|---|---|---|---|---|
-| Brasa M3 (refit 2012–2018) | 0.304 | 0.246 | 0.199 | 0.768 | 0.300 |
-| per-pixel MLP (`context_baseline.py`) | 0.291 | 0.245 | 0.208 | 0.851 | 0.279 |
-| U-Net (`model/unet.pt`) | 0.266 | 0.211 | 0.184 | 0.863 | 0.253 |
-| **mean of U-Net and MLP** | **0.261** | **0.203** | **0.175** | **0.867** | **0.243** |
-| NOAA-20 vs S-NPP (ceiling) | 0.163 | 0.105 | 0.087 | 0.925 | 0.099 |
+Old model on 2019–2024 (median |log error| of monthly totals; lower is better): 1° 0.266, 5° 0.211,
+country 0.184, against Brasa M3's 0.304 / 0.246 / 0.199 and the NOAA-20 ceiling's 0.163 / 0.105 / 0.087.
+The v2 numbers come from `run_evaluate.py` once v2 has been trained on a GPU (see *Status*).
 
-- Paired bootstrap over months at 5°: ensemble − Brasa −0.030 [−0.035, −0.027]; ensemble − U-Net
-  −0.014 [−0.017, −0.011]; MLP − Brasa +0.003 [−0.002, +0.006]. The 50/50 weight was fixed in
-  advance, not tuned on the test years.
-- The MLP sees the same channels plus 1/3/9/25-cell neighbourhood sums but no learned convolutions.
-  It matches the U-Net on anomaly sign but not on regional level, so the learned spatial context is
-  what buys the 5° and country gain. They err in different places (the U-Net under-predicts small
-  fires, −10.5 % bias in cells with < 1 MODIS det/yr; the MLP is near unbiased), so the mean wins.
-- Permutation importance (U-Net, 5° error increase): MODIS count +1.18, FRP total/max +0.83, MODIS
-  climatology +0.21, fire days +0.08; neighbouring months only +0.01.
-- Weak spots: **Brazil** (country error 0.078 vs 0.054 for Brasa M3) and cells where MODIS saw
-  nothing (−12 % bias). Keep Brasa M3 there, and for the Terra-only months before July 2002.
-- Run it: `ml/colab_run_model.ipynb` (or `ml/predict_ensemble.py`) writes VIIRS-equivalent counts per
-  cell-month for 2002-07 → 2025. `ml/colab_experiment.ipynb` reproduces the comparison.
+## Files
 
-## What the overlap period shows (2012–2025, `features.parquet`)
+One naming scheme: `<role>_<subject>`. `lib_*` modules are imported, never run; `run_*` scripts are the
+pipeline steps in order; `test_*` holds the tests.
 
-| | |
+| file | role |
 |---|---|
-| Overlap years | 2012–2025 (S-NPP); NOAA-20 from 2018 |
-| Good detections | MODIS 102.7 M · S-NPP 231.3 M · NOAA-20 127.6 M (2000–2025 totals in the table) |
-| Global V/M per year | 3.78 – 4.25 for 2012–2024, **4.47 in 2025** (drifting up as Terra/Aqua age and drift) |
-| VIIRS in cell-months where MODIS saw nothing | 4.2–6.3 % of all S-NPP detections, spread over 3.2 M cell-months |
-| V/M by cell fire regime | 7.3× in cells with < 1 MODIS det/yr, 3.8× in cells with ≥ 100/yr |
-| V/M by night share | 3.7× (day-only) → 4.6× (≥ 50 % night) |
-| V/M by Terra share | ~3.9× when Aqua dominates, 3.3× when ≥ 80 % Terra |
-| V/M by burstiness | 3.7–4.0× normally, 2.8× when the whole month is one MODIS day |
-| Spread at fixed MODIS count (m_n = 5) | S-NPP quartiles 8 / 15 / 26, mean 19.5, variance 380: strongly overdispersed |
-| Cell-month log correlation | MODIS vs S-NPP 0.84; **NOAA-20 vs S-NPP 0.90 (ceiling)** |
-
-So the ratio is stable on average, but it is conditional on fire regime, overpass mix and timing,
-and the per-cell scatter is large. At cell-month level the headroom is small: MODIS gets 0.84
-log correlation against a 0.90 instrument ceiling. At 5° and country scales Brasa sits well
-above the ceiling (error 0.26 vs 0.11 in the main README), and that is the gap a learned model
-can try to close.
-
-## Design
+| `lib_config.py` | Constants (grid, detection filters, baseline K0/B0), the **channel catalogue** and presets, year parsing, and the typed configs stored in checkpoints: `InputSpec` (which channels and in what layout), `ModelConfig` (architecture), `TrainConfig` (training run). |
+| `lib_stack.py` | `Stack`: read-only memmap view of a tensor stack. Builds model inputs **by channel name** from an `InputSpec`, which is why one stack serves both models. Supports Aqua removal (`aqua_off`), and channel swaps and static shifts for permutation tests. |
+| `lib_model.py` | `UNet` (depth, width and norm configurable; the legacy architecture is depth 3 + GroupNorm), NB likelihood, multi-scale regional loss, `tiled_forward` (full-map inference), `Predictor` (loads **both** checkpoint formats and averages ensemble members), `MonthPrediction` (per-member μ, α; draws from the predictive mixture). |
+| `lib_metrics.py` | Dense scoring: `Regions` (1°, 5°, country ids), `score()` (identical to `pipeline/03_validate.py`, plus anomaly slope), paired month-bootstrap, gap-closed share, randomized PIT, Brasa M3 refit as maps (`BrasaMaps`). |
+| `run_clean.py` | **Step 1, data cleaning.** FIRMS points → `features.parquet`, one row per cell-month: legacy `m_*` columns (bit-identical to the old table), per-satellite `t_*` / `a_*`, and the targets `v_n` (S-NPP) and `n20_n` (NOAA-20). |
+| `run_tensor.py` | **Step 2, tensor creation.** `features.parquet` → stack `X/Y/N20/S/CL.npy` + `meta.json`. `--preset legacy\|v2\|all`, `--bbox`, `--aux` for external covariates. |
+| `run_train.py` | **Step 3, training.** One member, a seed ensemble, or blocked year-fold CV (`--folds`); fixed-epoch refits (`--val none`). Every phase-1/3/4 option can be toggled for ablations. |
+| `run_evaluate.py` | **Step 4, testing and evaluation.** Scores any number of `.pt` files (old and new) plus Brasa M3 and the ceiling on the same months, and writes `report.md` plus CSVs (see below). |
+| `run_predict.py` | **Step 5, prediction.** Any months, including pre-VIIRS → `cells_<year>.parquet` (optional p10/p90), `monthly_totals.csv`, and `app_nn.parquet` for `pipeline/08_merge_unet.py`. |
+| `run_colab.ipynb` | The full GPU workflow on Colab: stacks → ablations → CV ensemble → old-vs-new report → backcast → production refit → prediction → app merge. |
+| `test_lib.py` | Unit tests (stdlib `unittest`): input layout, Aqua dropout, NB loss vs `torch.distributions`, tile independence, legacy key remap, checkpoint round-trip, `score()` vs the original pandas code, PIT calibration. |
+| `requirements.txt` | ML extras on top of `../requirements.txt`. |
 
 ```
-points/*.parquet ──features.py──▶ ml/features.parquet ──build_tensor.py──▶ ml/<name>/{X,Y,N20,S,CL}.npy
-                                                                              │
-                                              train.py (U-Net, NB loss) ◀─────┘──▶ evaluate.py
+points/*.parquet ─run_clean─▶ ml/features.parquet ─run_tensor─▶ ml/<stack>/{X,Y,N20,S,CL}.npy, meta.json
+                                                                   │
+                         run_train ─▶ model.pt ─┬─▶ run_evaluate ─▶ ml/eval/report.md, *.csv
+                                                └─▶ run_predict  ─▶ cells_<year>.parquet, app_nn.parquet
+                                                                     └─▶ pipeline/08_merge_unet.py
 ```
 
-- **Inputs per cell-month: 15 MODIS channels.** Counts with and without low-confidence
-  detections, Terra and night counts, a 4-bin FRP histogram, total and max FRP, fire-days and
-  peak-day count, mean pixel footprint, confidence and brightness. Each month also gets the same
-  channels for the previous and next month, plus static maps: latitude, longitude, and the MODIS
-  climatology for the calendar month and the year. Climatologies use **MODIS only**, so nothing
-  about the target leaks in and the model can run before 2012. Filters are identical to
-  `pipeline/02_aggregate.py`.
-- **Model.** A 3-level U-Net (1.8 M parameters at width 32; receptive field about 17°) predicts a
-  correction to the global-ratio baseline: `log μ = log(4.1·M + 0.05) + f(x)`. It starts as
-  Brasa's M0 and learns only the departures, so `exp(f)` is a mappable conversion-factor field.
-  The spatial context lets it learn the small-fire floor (VIIRS fire where MODIS saw none)
-  rather than having it imposed.
-- **Loss.** Negative-binomial NLL per pixel, with learned per-pixel overdispersion. This gives
-  calibrated uncertainty, which the app's p10–p90 band can use. On top of that is a smooth-L1 on
-  log totals over 2° blocks, because regional totals are what the calendar shows.
-- **Split.** Matches `pipeline/03_validate.py`: train 2012–2017, early-stop on 2018, test
-  2019–2024. Outage months in `docs/validation/model.json` are excluded everywhere.
-- **Evaluation.** The same metrics as the main README at 1°, 5° and country scales. The CNN is
-  scored alongside Brasa M3 refit on the identical grid and years, and alongside the NOAA-20
-  ceiling. `--importance` does permutation importance by input group (swap with another month,
-  or spatially shift static maps), which shows which signals the network relies on beyond the
-  raw count.
-
-## Run (GPU machine)
+## Run
 
 ```bash
-.venv/bin/pip install -r ml/requirements.txt          # pick the CUDA torch wheel for your GPU
-.venv/bin/python -I ml/features.py     ~/firms/derived                       # ~3 min on 4 cores
-.venv/bin/python -I ml/build_tensor.py ~/firms/derived --years 2012-2025     # ~3.7 GB memmaps
-.venv/bin/python -I ml/train.py ~/firms/derived/ml/overlap ~/firms/derived/ml/unet.pt
-.venv/bin/python -I ml/evaluate.py ~/firms/derived ~/firms/derived/ml/overlap ~/firms/derived/ml/unet.pt --importance
+.venv/bin/pip install -r ml/requirements.txt                       # CUDA machine: matching torch wheel
+.venv/bin/python -I ml/test_lib.py                                  # seconds
+.venv/bin/python -I ml/run_clean.py  ~/firms/derived                # ~8 min on 4 cores, 200 MB
+.venv/bin/python -I ml/run_tensor.py ~/firms/derived --years 2011-2025 --preset v2  --name overlap
+.venv/bin/python -I ml/run_tensor.py ~/firms/derived --years 2018-2025 --preset all --name eval
+.venv/bin/python -I ml/run_train.py  ~/firms/derived/ml/overlap model/unet_v2_cv.pt --train 2012-2018 --folds 7
+.venv/bin/python -I ml/run_evaluate.py ~/firms/derived ~/firms/derived/ml/eval \
+    --model old=model/unet.pt --model new=model/unet_v2_cv.pt --test 2019-2025 --terra-only --importance
 ```
 
-Smoke test (CPU, seconds, 8°×8° Cerrado window):
+Smoke test (CPU, under a minute, 20° × 20° window in South America):
 
 ```bash
-.venv/bin/python -I ml/build_tensor.py ~/firms/derived --years 2016-2020 --bbox=-50,-16,-42,-8 --name smoke
-.venv/bin/python -I ml/train.py ~/firms/derived/ml/smoke /tmp/smoke.pt --train 2016-2017 --val 2018 --smoke
-.venv/bin/python -I ml/evaluate.py ~/firms/derived ~/firms/derived/ml/smoke /tmp/smoke.pt --train 2016-2018 --test 2019-2020 --importance --imp-months 6
+.venv/bin/python -I ml/run_tensor.py ~/firms/derived --years 2015-2021 --preset all --bbox=-60,-20,-40,0 --name smoke
+.venv/bin/python -I ml/run_train.py ~/firms/derived/ml/smoke /tmp/smoke.pt --train 2015-2017 --val 2018 --smoke
+.venv/bin/python -I ml/run_evaluate.py ~/firms/derived ~/firms/derived/ml/smoke --model old=model/unet.pt \
+    --model new=/tmp/smoke.pt --test 2019-2020 --terra-only --importance --imp-months 4 --out /tmp/eval_smoke
 ```
 
-## Residual check: is there signal left? (`residual_check.py`, no training, ~25 s)
+Stack sizes on the default grid (latitude −56…72): 1.47 MB per channel-month, so 2011–2025 v2 is about
+7.6 GB, 2018–2025 all is 6.4 GB, and 2000–2025 v2 (for prediction) is 13.8 GB.
 
-```bash
-.venv/bin/python -I ml/residual_check.py ~/firms/derived
-```
+## Reading `report.md` (run_evaluate.py)
 
-Brasa M3 is fit on 2012–2018. On held-out 2022–2024 cell-months where MODIS saw fire:
+- **Median |log error|, anomaly sign, bias**: the `pipeline/03_validate.py` metrics at 1°, 5° and country scale.
+- **Gap closed**: (Brasa − model) / (Brasa − ceiling). 0 is Brasa, 1 is as good as a second VIIRS instrument.
+  NOAA-20 is a noisy reference, not a hard bound, so a mean predictor can beat it on some metrics.
+- **Anomaly slope** < 1 means year-to-year swings are damped. Predicted means are smoother than real
+  VIIRS, which matters to anyone studying variability or extremes.
+- **Paired bootstrap**: 95% interval of the error difference, resampling months. Only a "better" verdict
+  whose interval excludes 0 counts as an improvement. Run 2–3 seeds before trusting small differences.
+- **By year**: drift. V/M rises in 2025 as Terra and Aqua drift off their overpass times.
+- **Fire regimes / MODIS saw nothing**: the small-fire floor, the old model's weak spot (about −15% bias).
+- **Calibration**: randomized PIT of the per-cell NB mixture; 80% coverage should be near 0.80.
+- **`[Terra-only]` rows** (`--terra-only`): the v2 model with Aqua removed, against a Terra-only Brasa refit.
+  This is the only direct check available for the 2000-11 … 2002-06 months.
+- **Warnings** flag test years a model saw in training. For example, the old model is in-sample on 2012–2018.
 
-- **Residual variance is 0.239.** About 0.050 of that is instrument noise, measured as the
-  NOAA-20 vs S-NPP disagreement.
-- **The per-cell MODIS descriptors explain very little of it.** The best single one (fire days)
-  explains 2.7%, and the top three together 3.5%. Bin means come from 2019–2021 and are scored
-  on 2022–2024.
-- **A lookup correction built from them makes regional error worse.** At 5° it goes from 0.305
-  to 0.314; for countries, from 0.255 to 0.262.
+## Methodology checks built in
 
-So nearly all of Brasa's remaining error is invisible to the per-cell MODIS record. The U-Net's
-only remaining edge is spatial and temporal context. Expect small gains at best, and extend this
-check with neighbourhood sums before spending GPU time.
+- **Backcast**: `run_train.py --train 2016-2025 --val 2015`, then `run_evaluate.py --test 2012-2014
+  --brasa-train 2016-2024`. Training forward and testing backward mimics the real use (2000–2011).
+- **Ablations** (`run_colab.ipynb` step 2): legacy recipe vs v2, and v2 without each change
+  (`--norm group`, `--no-location`, `--depth 2`, `--reg-w 0/1`, `--offsets -12,-1,0,1`).
+- **Ensembles**: `--folds K --seeds S`. Every member is early-stopped on its own held-out years, and
+  `Predictor` averages member means. The spread between members is part of the predictive mixture.
+- **External covariates**: `run_tensor.py --aux file.parquet` adds standardized `aux_*` channels.
+  They need columns `cell` (+ `year`, `month` if monthly) on the 0.25° grid and must cover 2000 onward.
+  Candidates: MCD64A1 burned area, MOD35/MYD35 cloud or clear-sky fraction, MCD12Q1 land cover, VCF
+  tree cover. None ships with the repo; they must be downloaded from NASA Earthdata and regridded.
+  Train on them with `run_train.py --aux`.
 
-## Known limits / next steps
+## Known limits
 
-- **Terra-only era (2000-11 → 2002-06).** Not handled. The model is trained on Terra+Aqua
-  inputs, so keep Brasa's Terra-only model for those months, or build a Terra-only feature
-  variant and train a second network.
-- **Sensor drift.** V/M rises in 2025. A model frozen on 2012–2018 may under-predict late
-  years. Check the per-year bias in the evaluation before trusting 2023–2025.
-- **Strong tabular baseline.** Worth adding gradient-boosted trees on the same features plus
-  neighbourhood sums, with SHAP, as a second learned model. If it matches the CNN, prefer it.
-- **Hyperparameters.** Width, patch size, `--reg-w` and epochs are untuned defaults.
+- Inputs are monthly aggregates, so daily co-occurrence with the Aqua / S-NPP 13:30 overpass is only
+  summarised by `days`, `maxday` and `hour`. A daily input tensor would be about 30× larger (~200 GB).
+- The 2000–2011 error cannot be measured. The backcast and Terra-only rows are the best available proxies.
+- `pipeline/08_merge_unet.py` still keeps the Terra-only months on Brasa M3, and its model card (`nn.json`)
+  still describes the old U-Net + MLP ensemble. Update both once v2 has been scored.
+- Old helper scripts (`compare.py`, `context_baseline.py`, the per-pixel MLP, `residual_check.py`, the
+  two Colab notebooks) were replaced by the files above. They remain in git history (commit `4d18e46`).
