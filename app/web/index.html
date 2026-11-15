@@ -12,9 +12,17 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
 <link rel="stylesheet" href="/assets/style.css">
-<script>try{var t=localStorage.getItem('brasa-theme');if(t==='night'||t==='day')document.documentElement.dataset.theme=t}catch(e){}document.documentElement.classList.add('js')</script>
+<script>try{var t=localStorage.getItem('brasa-theme');if(t==='night'||t==='day')document.documentElement.dataset.theme=t}catch(e){}document.documentElement.classList.add('js');if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElement.classList.add('intro-on')</script>
 </head>
 <body>
+<div class="intro" id="intro" aria-hidden="true">
+  <div class="intro-glow"></div>
+  <svg class="intro-lines" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid slice">
+    <circle cx="500" cy="500" r="110"/><circle cx="500" cy="500" r="210"/><circle cx="500" cy="500" r="330"/><circle cx="500" cy="500" r="470"/>
+    <path d="M500 500 L860 40"/><path d="M0 500 H1000"/><path d="M500 0 V1000"/><path d="M140 140 L860 860"/>
+  </svg>
+  <div class="intro-word"><span>B</span><span>r</span><span>a</span><span>s</span><span>a</span><i class="intro-dot"></i></div>
+</div>
 <a class="skip" href="#record">Skip to the fire record</a>
 <div class="scanbar" aria-hidden="true"></div>
 
@@ -191,10 +199,13 @@
             <p>Every year is a ring and every month a spoke, read like fire scars in a tree</p>
           </div>
           <div class="ring-wrap">
-            <div id="ring" class="ring"></div>
-            <div class="readout" id="readout" aria-live="polite"></div>
+            <div class="ring-stage"><div id="ring" class="ring"></div></div>
+            <aside class="ring-side">
+              <div class="readout" id="readout" aria-live="polite"></div>
+              <div class="ring-legend" id="ringLegend"></div>
+              <ul class="ring-key" id="ringKey"></ul>
+            </aside>
           </div>
-          <p class="ring-key" id="ringKey"></p>
         </section>
       </div>
     </div>
@@ -266,7 +277,7 @@
       <h2 id="howH" class="sec-title"><span class="hl">How the numbers are made.</span> <span class="mute" id="howLede">VIIRS sees about four times as many hotspots as MODIS, so Brasa rewrites the MODIS years in VIIRS terms.</span></h2>
     </div>
 
-    <div class="timeline-panel panel" data-reveal>
+    <div class="timeline-panel panel" id="tlPanel" data-reveal>
       <div class="timeline" aria-hidden="true">
         <div class="tl-axis"><span>2000</span><span>2006</span><span>2012</span><span>2018</span><span>2025</span></div>
         <div class="tl-bar modis-t" style="left:0;width:6.6%">Terra</div>
@@ -277,19 +288,14 @@
       </div>
     </div>
 
-    <div class="howto">
-      <ol class="how-nav" id="howNav" aria-hidden="true">
-        <li data-step="0">Count fires on a grid</li>
-        <li data-step="1">Learn the sensor ratio</li>
-        <li data-step="2">Add what MODIS missed</li>
-        <li data-step="3">Rewrite 2000–2011</li>
+    <div class="how2">
+      <ol class="how2-steps" id="howSteps">
+        <li data-step="0"><span class="sn">01</span><h3>Count fires on a 25 km grid</h3><p>Every detection lands in a 0.25° cell and a month. Only presumed vegetation fires are kept: volcanoes, gas flares and other fixed heat sources are removed, as are low-confidence detections.</p></li>
+        <li data-step="1"><span class="sn">02</span><h3>Learn how VIIRS and MODIS differ, cell by cell</h3><p>From 2012 to 2024 both sensors flew. For each cell, Brasa learns how many VIIRS hotspots correspond to one MODIS hotspot. Cells with few fires borrow from their neighbourhood (1°, then 5°, then the globe), and the ratio shifts with the season.</p></li>
+        <li data-step="2"><span class="sn">03</span><h3>Add the fires MODIS could not see</h3><p>When MODIS saw nothing in a cell, VIIRS often still caught small fires. Brasa adds the number VIIRS typically finds in that situation. Leaving this out undercounts by several percent.</p></li>
+        <li data-step="3"><span class="sn">04</span><h3>Rewrite 2000–2011, keep VIIRS from 2012</h3><p>Before Aqua launched (to June 2002) only Terra flew, so a separate Terra-only model is used. Months with satellite outages are scaled by days observed, and the two Suomi NPP outages (August 2022, July 2024) use NOAA-20.</p></li>
       </ol>
-      <ol class="steps" id="howSteps">
-        <li data-step="0"><h3><span class="hl">Count fires on a 25 km grid.</span> <span class="mute">Every detection lands in a 0.25° cell and a month.</span></h3><p>Only presumed vegetation fires are kept: volcanoes, gas flares and other fixed heat sources are removed, as are low-confidence detections.</p></li>
-        <li data-step="1"><h3><span class="hl">Learn how VIIRS and MODIS differ.</span> <span class="mute">Cell by cell, over 2012 to 2024 when both flew.</span></h3><p>For each cell, Brasa learns how many VIIRS hotspots correspond to one MODIS hotspot. Cells with few fires borrow from their neighbourhood (1°, then 5°, then the globe), and the ratio shifts with the season.</p></li>
-        <li data-step="2"><h3><span class="hl">Add the fires MODIS could not see.</span> <span class="mute">Small fires below its 1 km pixels.</span></h3><p>When MODIS saw nothing in a cell, VIIRS often still caught small fires. Brasa adds the number VIIRS typically finds in that situation. Leaving this out undercounts by several percent.</p></li>
-        <li data-step="3"><h3><span class="hl">Rewrite 2000–2011, keep VIIRS from 2012.</span> <span class="mute">With care for outages and the Terra-only years.</span></h3><p>Before Aqua launched (to June 2002) only Terra flew, so a separate Terra-only model is used. Months with satellite outages are scaled by days observed, and the two Suomi NPP outages (August 2022, July 2024) use NOAA-20.</p></li>
-      </ol>
+      <div class="how2-stage" id="howStage" hidden aria-hidden="true"></div>
     </div>
 
     <div class="panel val" data-reveal>

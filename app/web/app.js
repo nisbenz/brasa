@@ -236,19 +236,74 @@ function renderReading() {
   if (t != null && Math.abs(t) >= 3) out.push(`Across the years shown, burning has <strong class="${t >= 0 ? 'up' : 'dn'}">${t >= 0 ? 'risen' : 'fallen'} ${Math.abs(Math.round(t))}%</strong> per decade.`);
   $('#reading').innerHTML = out.map(x => `<p>${x}</p>`).join('');
 }
+// KPI cards: a figure that counts up, a chip that puts it in context, and a small chart that draws in
 function renderTelemetry(s) {
-  const el = $('#telemetry');
-  if (!s.total) { el.innerHTML = ''; return; }
-  const t = s.trend_pct_per_decade;
-  const cells = [
-    ['Hotspots in this period', `<span data-count="${Math.round(s.total)}">${fmt(s.total)}</span>`],
-    ['Peak month', s.peak_month ? MONTH[s.peak_month - 1] : '–'],
-    ['Worst year', s.worst_year ? `${s.worst_year}<small>${big(s.worst_year_total)} hotspots</small>` : '–'],
-    ['Trend per decade', t == null ? '–' : `<span class="${t >= 0 ? 'up' : 'dn'}">${t >= 0 ? '+' : '−'}<span data-count="${Math.abs(Math.round(t))}">${Math.abs(Math.round(t))}</span>%</span>`],
+  const el = $('#telemetry'), d = state.data;
+  if (!s.total || !d) { el.innerHTML = ''; return; }
+  const n = {}; d.months.forEach(m => n[m.year] = (n[m.year] || 0) + 1);
+  const ys = d.yearly.filter(r => n[r.year] === 12);
+  const vals = ys.map(r => r.hotspots), med = vals.length ? [...vals].sort((a, b) => a - b)[(vals.length - 1) >> 1] : 0;
+  const clim = d.climatology.map(c => c.median), climSum = clim.reduce((a, b) => a + b, 0) || 1;
+  const t = s.trend_pct_per_decade, pk = s.peak_month;
+  const cards = [
+    { k: 'Hotspots in this period', v: `<span data-count="${Math.round(s.total)}">${fmt(s.total)}</span>`,
+      chip: `${ys.length} full years`, sub: `about ${big(s.total / Math.max(ys.length, 1))} a year`,
+      chart: kpiArea(vals) },
+    { k: 'Peak month', v: pk ? MONTH[pk - 1] : '–',
+      chip: pk ? `${Math.round(100 * clim[pk - 1] / climSum)}% of a typical year` : '', sub: 'median month, 2001–2025',
+      chart: kpiBars(clim, pk ? pk - 1 : -1, MN.map(m => m[0])) },
+    { k: 'Worst year', v: s.worst_year ? `<span>${s.worst_year}</span>` : '–',
+      chip: s.worst_year && med ? `${(s.worst_year_total / med).toFixed(1)}× the median year` : '', sub: s.worst_year ? `${big(s.worst_year_total)} hotspots` : '',
+      chart: kpiBars(vals, ys.findIndex(r => r.year === s.worst_year), null, s.worst_year ? big(s.worst_year_total) : '') },
+    { k: 'Trend per decade', v: t == null ? '–' : `${t >= 0 ? '+' : '−'}<span data-count="${Math.abs(Math.round(t))}">${Math.abs(Math.round(t))}</span>%`,
+      chip: t == null ? '' : Math.abs(t) < 3 ? 'about flat' : t >= 0 ? 'rising' : 'falling', cls: t == null || Math.abs(t) < 3 ? '' : t >= 0 ? 'up' : 'dn',
+      sub: 'fitted on full years', chart: kpiTrend(ys) },
   ];
-  el.innerHTML = cells.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
-  $$('[data-count]', el).forEach(countUp);
+  el.innerHTML = cards.map(c => `<div class="kpi"><dt>${c.k}</dt><dd><span class="kv ${c.cls || ''}">${c.v}</span>${c.chip ? `<span class="chip-d ${c.cls || ''}">${c.chip}</span>` : ''}<span class="ks">${c.sub}</span>${c.chart}</dd></div>`).join('');
+  play(el);
 }
+let uid = 0;
+const KW = 280, KH = 72;
+function kpiArea(vals) {
+  if (vals.length < 2) return '';
+  const max = Math.max(...vals, 1), id = 'ka' + (++uid);
+  const x = i => 2 + (KW - 4) * i / (vals.length - 1), y = v => KH - 4 - (KH - 12) * v / max;
+  const ln = vals.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
+  const last = vals.length - 1;
+  return `<svg class="kc" viewBox="0 0 ${KW} ${KH}" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--scar)" stop-opacity=".35"/><stop offset="1" stop-color="var(--scar)" stop-opacity="0"/></linearGradient></defs>
+    <g class="sweep"><path d="${ln}L${x(last)},${KH}L${x(0)},${KH}Z" fill="url(#${id})"/><path d="${ln}" fill="none" class="kl"/></g>
+    <circle class="pop" cx="${x(last)}" cy="${y(vals[last])}" r="3.5"/></svg>`;
+}
+function kpiBars(vals, hi, labels, callout) {
+  if (!vals.length) return '';
+  const max = Math.max(...vals, 1), n = vals.length, gap = n > 20 ? 1.5 : 3, bw = (KW - gap * (n - 1)) / n, base = labels ? KH - 12 : KH - 2;
+  const bars = vals.map((v, i) => { const h = Math.max(1.5, (base - 14) * v / max); return `<rect class="bar${i === hi ? ' hi' : ''}" style="--i:${i}" x="${(i * (bw + gap)).toFixed(1)}" y="${(base - h).toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="${Math.min(2, bw / 3)}"/>`; }).join('');
+  const lab = labels ? labels.map((l, i) => `<text x="${(i * (bw + gap) + bw / 2).toFixed(1)}" y="${KH - 1}" text-anchor="middle"${i === hi ? ' class="hi"' : ''}>${l}</text>`).join('') : '';
+  let co = '';
+  if (callout && hi >= 0) { const cx = Math.min(KW - 30, Math.max(30, hi * (bw + gap) + bw / 2)); co = `<g class="pop"><rect class="co" x="${cx - 28}" y="0" width="56" height="13" rx="6.5"/><text class="cot" x="${cx}" y="9.5" text-anchor="middle">${callout}</text></g>`; }
+  return `<svg class="kc" viewBox="0 0 ${KW} ${KH}" aria-hidden="true">${bars}${lab}${co}</svg>`;
+}
+function kpiTrend(ys) {
+  if (ys.length < 5) return '';
+  const xs = ys.map(r => r.year), lv = ys.map(r => Math.log1p(r.hotspots));
+  const mx = xs.reduce((a, b) => a + b, 0) / xs.length, my = lv.reduce((a, b) => a + b, 0) / lv.length;
+  const b = xs.reduce((a, x, i) => a + (x - mx) * (lv[i] - my), 0) / xs.reduce((a, x) => a + (x - mx) ** 2, 0);
+  const fit = x => Math.expm1(my + b * (x - mx));
+  const vals = ys.map(r => r.hotspots), max = Math.max(...vals, fit(xs[0]), fit(xs[xs.length - 1]), 1);
+  const x = yr => 2 + (KW - 4) * (yr - xs[0]) / (xs[xs.length - 1] - xs[0]), y = v => KH - 4 - (KH - 12) * v / max;
+  const ln = ys.map((r, i) => `${i ? 'L' : 'M'}${x(r.year).toFixed(1)},${y(r.hotspots).toFixed(1)}`).join('');
+  const tr = xs.map((yr, i) => `${i ? 'L' : 'M'}${x(yr).toFixed(1)},${y(fit(yr)).toFixed(1)}`).join('');
+  return `<svg class="kc" viewBox="0 0 ${KW} ${KH}" aria-hidden="true"><g class="sweep"><path d="${ln}" fill="none" class="kl soft"/><path d="${tr}" fill="none" class="kt ${b >= 0 ? 'up' : 'dn'}"/></g></svg>`;
+}
+// charts draw in when they come into view; re-rendered charts replay immediately if visible
+const playIO = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('play'); playIO.unobserve(e.target); countIn(e.target); } }), { rootMargin: '0px 0px -8% 0px' });
+function play(el) {
+  el.classList.remove('play'); void el.offsetWidth;
+  const r = el.getBoundingClientRect();
+  if (r.top < innerHeight && r.bottom > 0) requestAnimationFrame(() => { el.classList.add('play'); countIn(el); });
+  else playIO.observe(el);
+}
+function countIn(el) { $$('[data-count]', el).forEach(countUp); }
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 function countUp(el) {
   const to = +el.dataset.count; if (reduceMotion.matches || !to) return;
@@ -332,15 +387,28 @@ function renderRing() {
   const pick = t => { const p = t.closest('.cellp'); return p ? state.byK[p.dataset.k] : null; };
   svg.addEventListener('pointerover', e => { const m = pick(e.target); if (m) { $$('.cellp.on', svg).forEach(x => x.classList.remove('on')); e.target.classList.add('on'); renderReadout(m); } });
   svg.addEventListener('click', e => { const m = pick(e.target); if (m) selectYear(m.year); });
-  const ky = iEra > 0 ? ` The heavy ring marks January 2012, when VIIRS takes over; hatched rings inside it are estimated from MODIS.` : (harmYears ? ' Hatched rings are estimated from MODIS.' : '');
-  $('#ringKey').textContent = `${years[0]} sits at the centre and ${years[N - 1]} at the edge; each spoke is a month.${ky} Hover a cell to read it, click to trace that year below.`;
+  $('#ringLegend').innerHTML = legendHTML(sc, state.mode === 'anom');
+  $('#ringKey').innerHTML = [
+    `<li><i class="rk-c"></i>${years[0]} at the centre, ${years[N - 1]} at the edge</li>`,
+    `<li><i class="rk-m"></i>Each spoke is a month, January at the top</li>`,
+    iEra > 0 ? `<li><i class="rk-era"></i>Heavy ring: January 2012, when VIIRS takes over</li>` : '',
+    harmYears ? `<li><i class="rk-h"></i>Hatched rings are estimated from MODIS</li>` : '',
+    state.year ? `<li><i class="rk-sel"></i>Orange outline: ${state.year}, traced in the charts below</li>` : '',
+    `<li class="tip-l">Hover a cell to read it. Click to trace that year.</li>`,
+  ].join('');
 }
 function renderReadout(m) {
   if (!m) { const l = state.data.summary.latest; m = l ? state.byK[l.year * 12 + l.month - 1] : null; }
   if (!m) { $('#readout').innerHTML = ''; return; }
   $('#readout').innerHTML = `<div class="when">${MONTH[m.month - 1]} ${m.year}</div>
     <div class="n">${fmt(m.hotspots)}</div><div class="unit">hotspots, in VIIRS terms</div>
-    <p>${compareText(m)}</p><p class="src">${srcText(m)}.</p>`;
+    <p>${compareText(m)}</p><p class="src">${srcText(m)}.</p>${yearBars(m)}`;
+}
+// the hovered month inside its year: twelve small bars, that month in ember
+function yearBars(m) {
+  const v = Array.from({ length: 12 }, (_, i) => { const x = state.byK[m.year * 12 + i]; return x ? x.hotspots : 0; });
+  const max = Math.max(...v, 1), w = 240, h = 56, bw = (w - 11 * 3) / 12;
+  return `<svg class="rb" viewBox="0 0 ${w} ${h}" aria-hidden="true">${v.map((x, i) => { const bh = Math.max(1.5, (h - 14) * x / max); return `<rect class="${i === m.month - 1 ? 'hi' : ''}" x="${(i * (bw + 3)).toFixed(1)}" y="${(h - 12 - bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2"/><text class="${i === m.month - 1 ? 'hi' : ''}" x="${(i * (bw + 3) + bw / 2).toFixed(1)}" y="${h - 1}" text-anchor="middle">${MN[i][0]}</text>`; }).join('')}</svg>`;
 }
 function selectYear(y) {
   state.year = y;
@@ -394,51 +462,73 @@ function renderHeat() {
   });
   renderLegend(sc, anom);
 }
-function renderLegend(sc, anom) {
+function renderLegend(sc, anom) { $('#legend').innerHTML = legendHTML(sc, anom); }
+function legendHTML(sc, anom) {
   const bar = Array.from({ length: 9 }, (_, i) => `<i style="background:var(--${anom ? 'div' : 'seq'}-${i})"></i>`).join('');
   let t;
   if (anom) t = ['a quarter of usual', 'usual', '4× usual'];
   else { const lg = state.scale === 'log', e = f => lg ? Math.expm1(Math.log1p(sc.max) * f) : sc.p99 * f; t = ['1', fmt(e(.5)), (lg ? '' : 'over ') + fmt(lg ? sc.max : sc.p99)]; }
-  $('#legend').innerHTML = `<div class="lg-bar" aria-hidden="true">${bar}</div><div class="lg-ticks"><span>${t[0]}</span><span>${t[1]}</span><span>${t[2]}</span></div><p class="hint" style="margin-top:4px">${anom ? 'Each month against the median of the same month, 2001–2025.' : `Hotspots per month${state.scale === 'log' ? ', log scale' : ''}. Grey means none detected.`}</p>`;
+  return `<div class="lg-bar" aria-hidden="true">${bar}</div><div class="lg-ticks"><span>${t[0]}</span><span>${t[1]}</span><span>${t[2]}</span></div><p class="hint" style="margin-top:4px">${anom ? 'Each month against the median of the same month, 2001–2025.' : `Hotspots per month${state.scale === 'log' ? ', log scale' : ''}. Grey means none detected.`}</p>`;
 }
 
 /* ---------- charts ---------- */
-const W = 520, H = 280, P = { l: 46, r: 8, t: 10, b: 28 };
+const W = 520, H = 280, P = { l: 46, r: 8, t: 14, b: 28 };
 function niceMax(v) { if (v <= 0) return 1; const p = 10 ** Math.floor(Math.log10(v)); const f = v / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p; }
 const kfmt = v => v >= 1e6 ? +(v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? +(v / 1e3).toFixed(1) + 'k' : String(Math.round(v));
-function yAxis(max) {
+function yAxis(max, w = W, h = H, p = P) {
   let s = '';
-  for (let i = 0; i <= 4; i++) { const v = max * i / 4, y = P.t + (H - P.t - P.b) * (1 - i / 4); s += `<line x1="${P.l}" x2="${W - P.r}" y1="${y}" y2="${y}" style="stroke:var(--rule)" stroke-width="${i ? .8 : 1.4}"/><text x="${P.l - 8}" y="${y + 4}" text-anchor="end">${kfmt(v)}</text>`; }
+  for (let i = 0; i <= 4; i++) { const v = max * i / 4, y = p.t + (h - p.t - p.b) * (1 - i / 4); s += `<line class="${i ? 'gl' : 'gl0'}" x1="${p.l}" x2="${w - p.r}" y1="${y}" y2="${y}"/><text x="${p.l - 8}" y="${y + 4}" text-anchor="end">${kfmt(v)}</text>`; }
   return s;
 }
+const grad = (id, op = .32) => `<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--scar)" stop-opacity="${op}"/><stop offset="1" stop-color="var(--scar)" stop-opacity="0"/></linearGradient>`;
+// hover: a vertical crosshair snaps to the nearest x and a tooltip reads that column
+function crosshair(box, w, h, p, xs, html) {
+  const svg = $('svg', box); if (!svg || !xs.length) return;
+  svg.insertAdjacentHTML('beforeend', `<line class="xh" x1="0" x2="0" y1="${p.t}" y2="${h - p.b}" visibility="hidden"/>`);
+  const xh = $('.xh', svg);
+  svg.onpointermove = e => {
+    const r = svg.getBoundingClientRect(), vx = (e.clientX - r.left) * w / r.width;
+    let k = 0; xs.forEach((x, i) => { if (Math.abs(x - vx) < Math.abs(xs[k] - vx)) k = i; });
+    xh.setAttribute('x1', xs[k]); xh.setAttribute('x2', xs[k]); xh.setAttribute('visibility', 'visible');
+    tipAt(html(k), r.left + xs[k] * r.width / w, r.top + p.t * r.height / h);
+  };
+  svg.onpointerleave = () => { xh.setAttribute('visibility', 'hidden'); $('#tip').hidden = true; };
+}
 function renderClim() {
-  const d = state.data, c = d.climatology;
+  const d = state.data, c = d.climatology, id = 'cg' + (++uid);
   const ym = {}; d.months.filter(m => m.year === state.year).forEach(m => ym[m.month] = m.hotspots);
   const max = niceMax(Math.max(...c.map(x => x.p90), ...Object.values(ym), 1));
   const x = i => P.l + (W - P.l - P.r) * (i + .5) / 12, y = v => P.t + (H - P.t - P.b) * (1 - v / max);
-  const line = f => c.map((r, i) => `${i ? 'L' : 'M'}${x(i)},${y(f(r))}`).join('');
+  const line = f => c.map((r, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(f(r)).toFixed(1)}`).join('');
   const band = c.map((r, i) => `${i ? 'L' : 'M'}${x(i)},${y(r.p90)}`).join('') + [...c].reverse().map((r, i) => `L${x(11 - i)},${y(r.p10)}`).join('') + 'Z';
   const yr = Object.keys(ym).map(Number).sort((a, b) => a - b);
-  const yl = yr.map((m, i) => `${i ? 'L' : 'M'}${x(m - 1)},${y(ym[m])}`).join('');
-  $('#clim').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Typical year: median month and the range holding 8 years in 10, with ${state.year} traced">${yAxis(max)}
+  const yl = yr.map((m, i) => `${i ? 'L' : 'M'}${x(m - 1).toFixed(1)},${y(ym[m]).toFixed(1)}`).join('');
+  const ya = yr.length > 1 ? `${yl}L${x(yr[yr.length - 1] - 1)},${H - P.b}L${x(yr[0] - 1)},${H - P.b}Z` : '';
+  $('#clim').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Typical year: median month and the range holding 8 years in 10, with ${state.year} traced"><defs>${grad(id)}</defs>${yAxis(max)}
     ${MN.map((m, i) => `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${m}</text>`).join('')}
-    <path d="${band}" style="fill:var(--band)"/><path d="${line(r => r.median)}" fill="none" style="stroke:var(--ink)" stroke-width="2"/>
-    ${yl ? `<path d="${yl}" fill="none" style="stroke:var(--scar)" stroke-width="2.6"/>${yr.map(m => `<circle cx="${x(m - 1)}" cy="${y(ym[m])}" r="3.6" style="fill:var(--scar)"><title>${MONTH[m - 1]} ${state.year}: ${fmt(ym[m])}</title></circle>`).join('')}` : ''}</svg>`;
+    <g class="sweep"><path d="${band}" class="band"/><path d="${line(r => r.median)}" fill="none" class="med"/>
+    ${yl ? `<path d="${ya}" fill="url(#${id})"/><path d="${yl}" fill="none" class="sel"/>` : ''}</g>
+    ${yr.map((m, i) => `<circle class="pop dot" style="--i:${i}" cx="${x(m - 1)}" cy="${y(ym[m])}" r="3.6"/>`).join('')}</svg>`;
   $('#yrKey').textContent = state.year ? `The orange line is ${state.year}.` : '';
+  crosshair($('#clim'), W, H, P, c.map((_, i) => x(i)), k => `<div><b>${MONTH[k]}</b></div><div>Median ${fmt(c[k].median)}, 8 in 10 years ${fmt(c[k].p10)}–${fmt(c[k].p90)}</div>${ym[k + 1] != null ? `<div>${state.year}: <b>${fmt(ym[k + 1])}</b></div>` : ''}`);
+  play($('#clim'));
 }
 function renderAnnual() {
   const d = state.data, ys = d.yearly; if (!ys.length) { $('#annual').innerHTML = ''; return; }
   const cnt = {}; d.months.forEach(m => { const o = cnt[m.year] ||= { h: 0, n: 0 }; o.n++; if (isHarm(m.src)) o.h++; });
-  const max = niceMax(Math.max(...ys.map(r => r.hotspots), 1)), bw = (W - P.l - P.r) / ys.length, worst = d.summary.worst_year;
+  const max = niceMax(Math.max(...ys.map(r => r.hotspots), 1)), bw = (W - P.l - P.r) / ys.length, worst = d.summary.worst_year, id = 'ag' + (++uid);
+  const cx = i => P.l + i * bw + bw / 2;
   const bars = ys.map((r, i) => {
     const est = cnt[r.year] && cnt[r.year].h > cnt[r.year].n / 2, partial = cnt[r.year] && cnt[r.year].n < 12;
-    const hh = Math.max((H - P.t - P.b) * r.hotspots / max, 0), xx = P.l + i * bw + bw * .14, w = bw * .72, yy = H - P.b - hh;
-    const fill = r.year === state.year ? 'var(--scar)' : r.year === worst ? 'var(--ink-3)' : 'var(--bar)';
-    return `<g><title>${r.year}: ${fmt(r.hotspots)} hotspots${est ? ', estimated from MODIS' : ''}${partial ? `, ${cnt[r.year].n} months only` : ''}</title><rect x="${xx}" y="${yy}" width="${w}" height="${hh}" style="fill:${fill}${partial ? ';opacity:.45' : ''}"/>${est ? `<rect x="${xx}" y="${yy}" width="${w}" height="${hh}" fill="url(#bh)"/>` : ''}${r.year === worst ? `<text x="${xx + w / 2}" y="${yy - 6}" text-anchor="middle" style="fill:var(--ink-2)">Worst, ${r.year}</text>` : ''}</g>`;
+    const hh = Math.max((H - P.t - P.b) * r.hotspots / max, 0), xx = P.l + i * bw + bw * .16, w = bw * .68, yy = H - P.b - hh;
+    const cls = r.year === state.year ? 'bar sel' : r.year === worst ? 'bar worst' : 'bar';
+    return `<g><rect class="${cls}" style="--i:${i}${partial ? ';opacity:.45' : ''}" x="${xx}" y="${yy}" width="${w}" height="${hh}" rx="${Math.min(3, w / 3)}"/>${est ? `<rect class="bar" style="--i:${i};fill:url(#bh)" x="${xx}" y="${yy}" width="${w}" height="${hh}" rx="${Math.min(3, w / 3)}"/>` : ''}${r.year === worst ? `<g class="pop"><rect class="co" x="${cx(i) - 34}" y="${yy - 22}" width="68" height="16" rx="8"/><text class="cot" x="${cx(i)}" y="${yy - 10.5}" text-anchor="middle">Worst, ${r.year}</text></g>` : ''}</g>`;
   }).join('');
   const step = ys.length > 14 ? 5 : ys.length > 7 ? 2 : 1;
-  const ticks = ys.map((r, i) => r.year % step === 0 ? `<text x="${P.l + (i + .5) * bw}" y="${H - 8}" text-anchor="middle">${r.year}</text>` : '').join('');
-  $('#annual').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Hotspots per year"><defs><pattern id="bh" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)"><rect width="1.3" height="5" style="fill:var(--hatch)"/></pattern></defs>${yAxis(max)}${bars}${ticks}</svg>`;
+  const ticks = ys.map((r, i) => r.year % step === 0 ? `<text x="${cx(i)}" y="${H - 8}" text-anchor="middle">${r.year}</text>` : '').join('');
+  $('#annual').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Hotspots per year"><defs>${grad(id, .9)}<pattern id="bh" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)"><rect width="1.3" height="5" style="fill:var(--hatch)"/></pattern></defs>${yAxis(max)}${bars}${ticks}</svg>`;
+  crosshair($('#annual'), W, H, P, ys.map((_, i) => cx(i)), k => { const r = ys[k], c = cnt[r.year]; return `<div><b>${fmt(r.hotspots)}</b> hotspots in ${r.year}</div>${c && c.h > c.n / 2 ? '<div class="m">Estimated from MODIS</div>' : ''}${c && c.n < 12 ? `<div class="m">${c.n} months only</div>` : ''}`; });
+  play($('#annual'));
 }
 function renderAll(grow) {
   state.growNext = grow;
@@ -467,24 +557,124 @@ $('#csvPts').onclick = () => {
 $$('[data-how]').forEach(b => b.onclick = () => scrollToEl($('#method')));
 // When the U-Net ensemble is loaded (pipeline/08_merge_unet.py writes app/nn.json), the method section
 // describes it; otherwise it keeps describing the ratio model the data actually comes from.
+// The method, as the U-Net pipeline actually runs. Each step has a diagram; on wide screens the diagram
+// sits in a sticky stage beside the text, on narrow ones it follows its step.
+const VW = 560, VH = 400;
+const svgV = (body, label) => `<svg viewBox="0 0 ${VW} ${VH}" role="img" aria-label="${label}">${body}</svg>`;
+const cap = (lines, y = 356) => `<text class="vm" x="40" y="${y}">${lines.map((l, i) => `<tspan x="40" dy="${i ? 17 : 0}">${l}</tspan>`).join('')}</text>`;
+function rng(seed) { return () => (seed = (seed * 16807) % 2147483647) / 2147483647; }
+const VIZ = {
+  sensors() {
+    const fires = [[50, 50], [140, 140], [156, 46]], g = 40;
+    const lit = fires.map(([fx, fy]) => [Math.floor(fx / g), Math.floor(fy / g)]);
+    let grid = ''; for (let k = 1; k < 5; k++) grid += `<line class="gl2" x1="${320 + k * g}" y1="74" x2="${320 + k * g}" y2="274"/><line class="gl2" x1="320" y1="${74 + k * g}" x2="520" y2="${74 + k * g}"/>`;
+    return svgV(`<text class="vt" x="40" y="40">MODIS</text><text class="vm" x="40" y="58">1 km pixels · since Nov 2000</text>
+      <rect class="lit pop" style="--i:0" x="40" y="74" width="200" height="200" rx="6"/><rect class="px" x="40" y="74" width="200" height="200" rx="6"/>
+      ${fires.map(([x, y]) => `<circle class="fire" cx="${40 + x}" cy="${74 + y}" r="5"/>`).join('')}
+      <text class="vb pop" style="--i:2" x="40" y="318">1</text><text class="vm pop" style="--i:2" x="62" y="318">hotspot</text>
+      <text class="vt" x="320" y="40">VIIRS</text><text class="vm" x="320" y="58">375 m pixels · since Jan 2012</text>
+      ${lit.map(([c, r], k) => `<rect class="lit pop" style="--i:${4 + k * 3}" x="${320 + c * g}" y="${74 + r * g}" width="${g}" height="${g}"/>`).join('')}
+      <rect class="px" x="320" y="74" width="200" height="200" rx="6"/>${grid}
+      ${fires.map(([x, y]) => `<circle class="fire" cx="${320 + x}" cy="${74 + y}" r="5"/>`).join('')}
+      <text class="vb pop" style="--i:14" x="320" y="318">3</text><text class="vm pop" style="--i:14" x="342" y="318">hotspots</text>
+      ${cap(['The same three fires.', 'Over the whole planet VIIRS reports about 4× as many hotspots.'])}`, 'One coarse MODIS pixel flags one hotspot; the finer VIIRS grid flags three for the same fires');
+  },
+  grid() {
+    const r = rng(7), cx0 = 56, cy0 = 76, c = 64, cols = 7, rows = 4, pts = [], cnt = {};
+    const hubs = [[150, 140, 40], [330, 230, 34], [420, 120, 24]];
+    for (let k = 0; k < 46; k++) { const h = hubs[k % 3], a = r() * 6.283, d = Math.sqrt(r()) * h[2] * 1.6; pts.push([h[0] + Math.cos(a) * d, h[1] + Math.sin(a) * d]); }
+    pts.forEach(([x, y]) => { const key = Math.floor((x - cx0) / c) + ',' + Math.floor((y - cy0) / c); cnt[key] = (cnt[key] || 0) + 1; });
+    const max = Math.max(...Object.values(cnt));
+    let cells = '';
+    for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) { const n = cnt[i + ',' + j] || 0; cells += n ? `<rect class="pop" style="--i:${30 + (i + j) * 1.5};fill:var(--seq-${Math.min(8, 2 + Math.round(6 * n / max))})" x="${cx0 + i * c + 1}" y="${cy0 + j * c + 1}" width="${c - 2}" height="${c - 2}" rx="4"/><text class="vn pop" style="--i:${32 + (i + j) * 1.5}" x="${cx0 + i * c + c / 2}" y="${cy0 + j * c + c / 2 + 5}" text-anchor="middle">${n}</text>` : ''; }
+    let lines = ''; for (let i = 0; i <= cols; i++) lines += `<line class="gl2" x1="${cx0 + i * c}" y1="${cy0}" x2="${cx0 + i * c}" y2="${cy0 + rows * c}"/>`; for (let j = 0; j <= rows; j++) lines += `<line class="gl2" x1="${cx0}" y1="${cy0 + j * c}" x2="${cx0 + cols * c}" y2="${cy0 + j * c}"/>`;
+    const out = [[500, 300], [470, 96], [90, 300]];
+    return svgV(`<text class="vt" x="56" y="40">Every detection → one cell, one month</text><text class="vm" x="56" y="58">0.25° cells, about 25 km across</text>
+      ${cells}${lines}${pts.map(([x, y], k) => `<circle class="dotp pop" style="--i:${k * .5}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3"/>`).join('')}
+      ${out.map(([x, y], k) => `<g class="pop" style="--i:${8 + k}"><path class="xo" d="M${x - 5},${y - 5}L${x + 5},${y + 5}M${x + 5},${y - 5}L${x - 5},${y + 5}"/></g>`).join('')}
+      ${cap(['✕  volcanoes, gas flares and low-confidence', 'detections are removed'])}`, 'Fire detections fall into a grid of 25 km cells and are counted per cell');
+  },
+  inputs() {
+    const L = ['Fire counts, all and confident', 'Terra and night counts', 'Fire power: histogram, total, peak', 'Fire days and the busiest day', 'Pixel size, confidence, brightness'];
+    const layers = L.map((t, k) => { const y = 300 - k * 44; return `<g class="pop" style="--i:${k * 3}"><path class="layer${k % 2 ? ' alt' : ''}" d="M40,${y} l170,0 l50,-34 l-170,0 z"/><text class="vl" x="282" y="${y - 12}">${t}</text></g>`; }).join('');
+    return svgV(`<text class="vt" x="40" y="40">15 MODIS signals per cell and month</text>
+      <g class="pop" style="--i:16">${['t−1', 't', 't+1'].map((t, k) => `<rect class="tab${k === 1 ? ' on' : ''}" x="${40 + k * 58}" y="58" width="50" height="22" rx="11"/><text class="vm" x="${65 + k * 58}" y="73" text-anchor="middle">${t}</text>`).join('')}<text class="vm" x="220" y="73">the month before, itself and after</text></g>
+      ${layers}
+      <text class="vm pop" style="--i:18" x="40" y="340">+ latitude, longitude and a MODIS-only climatology</text>
+      <g class="pop" style="--i:20"><rect class="tgt" x="40" y="356" width="480" height="30" rx="8"/><text class="vm" x="54" y="375">Target while training, 2012–2017 only: what VIIRS S-NPP counted</text></g>`, 'Five stacked layers of MODIS signals for the previous, current and next month');
+  },
+  unet() {
+    const B = [[64, 170, 200], [124, 205, 130], [184, 235, 80], [250, 262, 44], [316, 235, 80], [376, 205, 130], [436, 170, 200]];
+    const blk = B.map(([x, c, h], k) => `<rect class="blk${k === 3 ? ' mid' : ''} pop" style="--i:${k * 2}" x="${x}" y="${c - h / 2}" width="28" height="${h}" rx="5"/>`).join('');
+    const skip = [0, 1, 2].map(k => { const a = B[k], b = B[6 - k], y = a[1] - a[2] / 2 + 14 + k * 6; return `<path class="skip" d="M${a[0] + 28},${y} L${b[0]},${y}"/>`; }).join('');
+    const flow = B.slice(0, -1).map((a, k) => { const b = B[k + 1]; return `<path class="flow" d="M${a[0] + 28},${a[1]} L${b[0]},${b[1]}"/>`; }).join('');
+    const tile = (x, cls) => { let t = ''; for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) t += `<rect x="${x + i * 9}" y="${152 + j * 9}" width="8" height="8" rx="1.5" style="fill:var(--seq-${cls[(i * 4 + j) % cls.length]})"/>`; return t; };
+    return svgV(`<text class="vt" x="40" y="40">A U-Net: 3 levels, 1.8 million parameters</text><text class="vm" x="40" y="58">down to see wide context, back up to 25 km detail</text>
+      <g class="pop" style="--i:0">${tile(18, [2, 4, 3, 5, 6, 3, 2, 4])}</g>
+      <g class="sweep">${flow}${skip}</g>${blk}
+      <g class="pop" style="--i:16">${tile(482, [4, 6, 5, 7, 8, 5, 4, 6])}</g>
+      <text class="vm" x="64" y="318">encoder: ~17° of context</text>
+      <text class="vm" x="464" y="338" text-anchor="end">decoder: back to each cell</text>
+      ${cap(['Output: a correction to the 4.1× ratio,', 'for every cell and every month'])}`, 'U-shaped network: encoder blocks shrink toward a bottleneck, decoder blocks grow back, with skip connections across');
+  },
+  ensemble() {
+    return svgV(`<text class="vt" x="40" y="40">Two models, one answer</text>
+      <g class="pop" style="--i:0"><rect class="box" x="40" y="72" width="220" height="96" rx="12"/><text class="vt" x="60" y="104">U-Net</text><text class="vm" x="60" y="124">reads about 17° of map</text><rect class="chipv" x="60" y="136" width="178" height="20" rx="10"/><text class="vm" x="70" y="150">under-counts tiny fires</text></g>
+      <g class="pop" style="--i:3"><rect class="box" x="40" y="222" width="220" height="96" rx="12"/><text class="vt" x="60" y="254">Per-pixel MLP</text><text class="vm" x="60" y="274">cell plus neighbourhood sums</text><rect class="chipv ok" x="60" y="286" width="120" height="20" rx="10"/><text class="vm" x="70" y="300">nearly unbiased</text></g>
+      <g class="sweep"><path class="flow" d="M260,120 C310,120 300,195 330,195"/><path class="flow" d="M260,270 C310,270 300,195 330,195"/><path class="flow" d="M390,195 L410,195"/></g>
+      <g class="pop" style="--i:8"><circle class="mean" cx="360" cy="195" r="30"/><text class="vt" x="360" y="200" text-anchor="middle">½ + ½</text></g>
+      <g class="pop" style="--i:11"><rect class="box hot" x="410" y="145" width="140" height="100" rx="12"/><text class="vt" x="426" y="177">Prediction</text><text class="vm" x="426" y="199">VIIRS-equivalent</text><text class="vm" x="426" y="217">hotspots per cell</text><text class="vm" x="426" y="233">and month</text></g>
+      ${cap(['The 50/50 weights were fixed before', 'looking at the test years'])}`, 'The U-Net and a per-pixel model are averaged into one prediction');
+  },
+  holdout() {
+    const H = (state.meta.nn && state.meta.nn.holdout) || [], short = { m3: 'Ratio model (M3)', mlp: 'Per-pixel MLP', unet: 'U-Net', ens: 'U-Net + MLP', ceil: 'Two VIIRS satellites' };
+    const rows = ['m3', 'mlp', 'unet', 'ens', 'ceil'].map(k => H.find(r => r.key === k)).filter(Boolean);
+    const sx = v => 300 * v / .3;
+    return svgV(`<text class="vt" x="40" y="40">Error at 5° boxes, 2019–2024</text><text class="vm" x="40" y="58">median |log error| of monthly totals · lower is better</text>
+      ${rows.map((r, k) => { const y = 88 + k * 52; return `<text class="vl${r.key === 'ens' ? ' hot' : ''}" x="40" y="${y + 18}">${short[r.key]}</text>
+        <rect class="hb gx${r.key === 'ens' ? ' hot' : r.key === 'ceil' ? ' ceil' : ''}" style="--i:${k * 3}" x="200" y="${y}" width="${sx(r.e5).toFixed(1)}" height="26" rx="6"/>
+        <text class="vv pop" style="--i:${8 + k * 2}" x="${(208 + sx(r.e5)).toFixed(1)}" y="${y + 18}">${r.e5.toFixed(3)}</text>`; }).join('')}
+      ${cap(['0.20 is a typical miss of about 22%.', 'The last bar is the best any conversion could do.'])}`, 'Bar chart of 5-degree errors on the held-out years');
+  },
+  record() {
+    const x = y => 172 + (y - 2000) / 26 * 360, seg = (a, b, y, cls, i) => `<rect class="seg gx ${cls}" style="--i:${i}" x="${x(a).toFixed(1)}" y="${y}" width="${(x(b) - x(a)).toFixed(1)}" height="30" rx="6"/>`;
+    return svgV(`<text class="vt" x="40" y="40">Where each month of the calendar comes from</text>
+      <text class="vl" x="40" y="119">Rest of the world</text><text class="vl" x="40" y="199">Brazil</text>
+      ${seg(2000.83, 2002.5, 98, 'm3', 0)}${seg(2002.5, 2012.08, 98, 'nn', 2)}${seg(2012.08, 2026, 98, 'vo', 4)}
+      ${seg(2000.83, 2012.08, 178, 'm3', 1)}${seg(2012.08, 2026, 178, 'vo', 5)}
+      ${[2022.58, 2024.5].map((y, k) => `<g class="pop" style="--i:${10 + k}"><line class="out" x1="${x(y)}" y1="92" x2="${x(y)}" y2="214"/></g>`).join('')}
+      ${[2000, 2006, 2012, 2018, 2025].map(y => `<text class="vm" x="${x(y)}" y="240" text-anchor="middle">${y}</text>`).join('')}
+      <g class="pop" style="--i:12"><rect class="seg m3" x="40" y="276" width="16" height="12" rx="3"/><text class="vm" x="62" y="287">ratio model</text>
+      <rect class="seg nn" x="160" y="276" width="16" height="12" rx="3"/><text class="vm" x="182" y="287">U-Net ensemble</text>
+      <rect class="seg vo" x="300" y="276" width="16" height="12" rx="3"/><text class="vm" x="322" y="287">VIIRS observed</text>
+      <line class="out" x1="48" y1="300" x2="48" y2="316"/><text class="vm" x="62" y="313">NOAA-20 fills a Suomi NPP outage</text></g>
+      ${cap(['Brazil and the Terra-only months before July 2002', 'stay on the ratio model, which is more accurate there'])}`, 'Timeline of data sources from 2000 to 2025');
+  },
+};
 const NN_STEPS = [
-  ['Count fires on a grid', 'Count fires on a 25 km grid.', 'Every detection lands in a 0.25° cell and a month.',
-    'Only presumed vegetation fires are kept: volcanoes, gas flares and other fixed heat sources are removed, as are low-confidence detections.'],
-  ['Describe each month', 'Describe every cell-month with 15 MODIS channels.', 'Not just how many fires, but what kind.',
-    'Counts with and without low-confidence detections, Terra and night counts, a fire-radiative-power histogram with its total and peak, fire days, pixel size, confidence and brightness. The previous and next months come along, with latitude, longitude and a MODIS-only climatology, so nothing from VIIRS leaks in and the model can run on years before VIIRS existed.'],
-  ['A U-Net reads the map', 'A U-Net reads the whole map, not one cell at a time.', 'It sees about 17° around every cell.',
-    'The network starts from the global ratio of about 4.1 VIIRS hotspots per MODIS hotspot and learns where and when to depart from it, including the small fires VIIRS catches where MODIS saw nothing. It was trained on 2012–2017, when both satellites flew, with a negative-binomial loss per cell and a term that keeps 2° regional totals right.'],
-  ['Average with an MLP', 'Average it with a per-pixel network.', 'The two make different mistakes.',
-    'A small MLP sees the same channels plus neighbourhood sums but no learned map context. The U-Net under-predicts the smallest fires, the MLP is nearly unbiased, and their mean beats both. The 50/50 weight was fixed before looking at the test years.'],
-  ['Keep the ratio model where it wins', 'Keep the ratio model where it is still better.', 'And observed VIIRS from 2012.',
-    'In Brazil the ratio model is more accurate (country error 0.054 against 0.078), and the ensemble does not cover the Terra-only months before July 2002, so both stay on it. From February 2012 the calendar shows what VIIRS observed, with NOAA-20 filling the two Suomi NPP outages.'],
+  { t: 'Two satellites, two scales', viz: 'sensors', facts: ['MODIS · 1 km · 2000–', 'VIIRS · 375 m · 2012–', 'about 4× more hotspots'],
+    p: 'MODIS has watched fires since 2000 with 1 km pixels. VIIRS, flying since 2012, has 375 m pixels and catches fires too small for MODIS, so it reports about four times as many hotspots. Put side by side, 2012 would look like a sudden explosion of fire that never happened.' },
+  { t: 'Put every detection on one grid', viz: 'grid', facts: ['0.25° ≈ 25 km cells', 'monthly', 'vegetation fires only'],
+    p: 'Every detection lands in a 0.25° cell, about 25 km across, and a month. Only presumed vegetation fires count: volcanoes, gas flares and other fixed heat sources are removed, and so are low-confidence detections.' },
+  { t: 'Describe each month with 15 MODIS signals', viz: 'inputs', facts: ['15 channels', 't−1, t, t+1', 'no VIIRS input'],
+    p: 'A count alone hides a lot. The model sees how many fires MODIS found, how many at night and by Terra, how much heat they gave off, on how many days and how large the pixels were, for the month before, the month itself and the month after. Location and a MODIS-only climatology complete the picture. Nothing comes from VIIRS, so it runs on years before VIIRS existed.' },
+  { t: 'A U-Net reads the map around each cell', viz: 'unet', facts: ['3-level U-Net', '1.8 M parameters', 'trained 2012–2017'],
+    p: 'The network starts from the global ratio of about 4.1 VIIRS hotspots per MODIS hotspot and learns where and when to depart from it. Seeing about 17° of map around every cell, it learns where VIIRS finds small fires MODIS missed entirely. It was trained on 2012–2017, when both satellites flew, with a loss built for overdispersed counts and a term that keeps regional totals right.' },
+  { t: 'Average it with a second model', viz: 'ensemble', facts: ['mean of 2 models', 'weights fixed in advance'],
+    p: 'A small per-pixel network sees the same signals plus neighbourhood sums, but no map. The U-Net under-predicts the very smallest fires, where the per-pixel model is nearly unbiased. Their mistakes fall in different places, so the plain average of the two beats both.' },
+  { t: 'Test it on years it never saw', viz: 'holdout', facts: ['test 2019–2024', '0.203 vs 0.246', 'better every test year'],
+    p: '2019 to 2024 was held out entirely. Asked to predict those years from MODIS alone, the ensemble lands closer to what VIIRS actually saw than Brasa\'s ratio model at every scale and in every test year. Two VIIRS satellites compared with each other set the floor no conversion can beat.' },
+  { t: 'Assemble the 25-year record', viz: 'record', facts: ['2002–2012: U-Net', '2012–: VIIRS observed', 'Brazil: ratio model'],
+    p: 'The calendar uses the ensemble from July 2002 to January 2012 and what VIIRS observed from then on, with NOAA-20 filling the two Suomi NPP outages. In Brazil, and in the Terra-only months before July 2002, the ratio model is more accurate, so it stays there.' },
 ];
 function renderMethod() {
   const nn = state.meta.nn; if (!nn) return;
-  $('#howLede').textContent = 'VIIRS sees about four times as many hotspots as MODIS, so a neural network trained where both satellites flew rewrites the MODIS years in VIIRS terms.';
-  $('#tlCal').textContent = 'training 2012–2017, test 2019–2024';
-  $('#howNav').innerHTML = NN_STEPS.map((x, i) => `<li data-step="${i}">${x[0]}</li>`).join('');
-  $('#howSteps').innerHTML = NN_STEPS.map((x, i) => `<li data-step="${i}"><h3><span class="hl">${x[1]}</span> <span class="mute">${x[2]}</span></h3><p>${x[3]}</p></li>`).join('');
+  $('#howLede').textContent = 'VIIRS sees about four times as many hotspots as MODIS. A neural network trained where both satellites flew rewrites the MODIS years in VIIRS terms.';
+  $('#tlPanel').hidden = true;
+  const n = NN_STEPS.length, pad = k => String(k).padStart(2, '0');
+  $('#howSteps').innerHTML = NN_STEPS.map((x, i) => `<li data-step="${i}"><span class="sn">${pad(i + 1)} <i>/ ${pad(n)}</i></span><h3>${x.t}</h3><p>${x.p}</p><ul class="facts-v">${x.facts.map(f => `<li>${f}</li>`).join('')}</ul><div class="vz vz-inline">${VIZ[x.viz]()}</div></li>`).join('');
+  const st = $('#howStage'); st.hidden = false;
+  st.innerHTML = `<div class="stage-prog"><i></i></div>` + NN_STEPS.map((x, i) => `<div class="vz" data-step="${i}">${VIZ[x.viz]()}</div>`).join('');
   $('#valSub').textContent = 'Every model was trained on 2012–2018 at most, then asked to predict 2019–2024 from MODIS alone and compared with what VIIRS actually saw. Lower error is better; the sign column is how often a strong anomaly at 5° points the right way. The last row compares two VIIRS satellites with each other: no conversion can do better than that.';
   const f = x => x == null ? '–' : (+x).toFixed(3);
   $('#valTable').innerHTML = `<tr><th>Method</th><th>Error, 1° boxes</th><th>Error, 5° boxes</th><th>Error, countries</th><th>Anomaly sign, 5°</th></tr>`
@@ -643,57 +833,78 @@ function renderAgree() {
   d.months.forEach(m => { const o = by[m.year] ||= { n: 0, modis: 0, eq: 0, viirs: 0, vn: 0 }; o.n++; o.modis += m.modis; o.eq += m.modis_eq; o.viirs += m.src === 'VN' ? m.viirs_noaa20 : m.viirs_snpp; if (m.src === 'VN') o.vn++; });
   const years = Object.keys(by).map(Number).filter(y => by[y].n === 12).sort((a, b) => a - b);
   if (years.length < 2) { $('#agreeChart').innerHTML = '<p class="hint">Choose a period of at least two full years to compare the sensors.</p>'; $('#agreeSide').innerHTML = ''; return; }
-  const W = 760, H = 300, P = { l: 52, r: 16, t: 14, b: 30 };
+  const narrow = $('#agreeChart').clientWidth < 560, W = narrow ? 420 : 760, H = narrow ? 300 : 320, P = { l: 44, r: 10, t: 18, b: 30 }, id = 'vg' + (++uid);
   const max = niceMax(Math.max(...years.map(y => Math.max(by[y].eq, by[y].viirs)), 1));
   const x = y => P.l + (W - P.l - P.r) * (years.length === 1 ? .5 : (y - years[0]) / (years[years.length - 1] - years[0]));
   const yv = v => P.t + (H - P.t - P.b) * (1 - v / max);
   const line = (ys, f) => ys.map((y, i) => `${i ? 'L' : 'M'}${x(y).toFixed(1)},${yv(f(by[y])).toFixed(1)}`).join('');
   const vy = years.filter(y => y >= 2012);
   const ov0 = Math.max(2012, years[0]), ov1 = years[years.length - 1];
-  const band = ov1 >= 2012 ? `<rect x="${x(ov0) - 6}" y="${P.t}" width="${x(ov1) - x(ov0) + 12}" height="${H - P.t - P.b}" style="fill:var(--paper-2)"/><text x="${x(ov0) + 4}" y="${P.t + 16}" style="fill:var(--ink-3)">Both satellites flying</text>` : '';
-  let grid = '';
-  for (let i = 0; i <= 4; i++) { const v = max * i / 4, y = yv(v); grid += `<line x1="${P.l}" x2="${W - P.r}" y1="${y}" y2="${y}" style="stroke:var(--rule)" stroke-width="${i ? .8 : 1.4}"/><text x="${P.l - 8}" y="${y + 4}" text-anchor="end">${kfmt(v)}</text>`; }
-  const step = years.length > 14 ? 5 : years.length > 7 ? 2 : 1;
+  const band = ov1 >= 2012 ? `<rect x="${x(ov0) - 6}" y="${P.t}" width="${x(ov1) - x(ov0) + 12}" height="${H - P.t - P.b}" class="ovl" rx="6"/><text x="${x(ov0) + 6}" y="${P.t + 16}" class="ovt">Both satellites flying</text>` : '';
+  const step = years.length > 14 ? (narrow ? 10 : 5) : years.length > 7 ? (narrow ? 4 : 2) : 1;
   const ticks = years.filter(y => y % step === 0).map(y => `<text x="${x(y)}" y="${H - 8}" text-anchor="middle">${y}</text>`).join('');
-  $('#agreeChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Yearly hotspots: raw MODIS, MODIS converted to VIIRS terms, and observed VIIRS">${band}${grid}${ticks}
-    <path d="${line(years, o => o.modis)}" fill="none" style="stroke:var(--ink-2)" stroke-width="1.6" stroke-dasharray="2 4"/>
-    <path d="${line(years, o => o.eq)}" fill="none" style="stroke:var(--ink)" stroke-width="2.4" stroke-dasharray="7 5"/>
-    ${vy.length ? `<path d="${line(vy, o => o.viirs)}" fill="none" style="stroke:var(--scar)" stroke-width="3.2"/>${vy.map(y => `<circle cx="${x(y)}" cy="${yv(by[y].viirs)}" r="3.4" style="fill:var(--scar)"><title>${y}: VIIRS ${fmt(by[y].viirs)}, converted MODIS ${fmt(by[y].eq)}, raw MODIS ${fmt(by[y].modis)}</title></circle>`).join('')}` : ''}</svg>`;
+  const va = vy.length > 1 ? `${line(vy, o => o.viirs)}L${x(vy[vy.length - 1])},${H - P.b}L${x(vy[0])},${H - P.b}Z` : '';
+  $('#agreeChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Yearly hotspots: raw MODIS, MODIS converted to VIIRS terms, and observed VIIRS"><defs>${grad(id, .28)}</defs>${band}${yAxis(max, W, H, P)}${ticks}
+    <g class="sweep"><path d="${line(years, o => o.modis)}" fill="none" class="raw"/>
+    ${va ? `<path d="${va}" fill="url(#${id})"/>` : ''}
+    <path d="${line(years, o => o.eq)}" fill="none" class="eq"/>
+    ${vy.length ? `<path d="${line(vy, o => o.viirs)}" fill="none" class="obs"/>` : ''}</g>
+    ${vy.map((y, i) => `<circle class="pop dot" style="--i:${i}" cx="${x(y)}" cy="${yv(by[y].viirs)}" r="3.6"/>`).join('')}</svg>`;
+  crosshair($('#agreeChart'), W, H, P, years.map(x), k => { const y = years[k], o = by[y]; return `<div><b>${y}</b></div>${y >= 2012 ? `<div><i class="sw-l obs"></i>VIIRS observed <b>${fmt(o.viirs)}</b></div>` : ''}<div><i class="sw-l eq"></i>MODIS converted <b>${fmt(o.eq)}</b></div><div class="m"><i class="sw-l raw"></i>MODIS raw ${fmt(o.modis)}</div>`; });
+  play($('#agreeChart'));
   // agreement over the overlap years in this selection
   const ov = vy.filter(y => by[y].viirs > 0 && y <= 2024);
   let stat = '<p>The selected period has no full years where both satellites flew.</p>';
   if (ov.length) {
     const diffs = ov.map(y => Math.abs(by[y].eq / by[y].viirs - 1)).sort((a, b) => a - b);
     const medd = diffs[Math.floor((diffs.length - 1) / 2)], worst = diffs[diffs.length - 1];
-    const ratio = years.filter(y => by[y].modis > 0).map(y => by[y].viirs / by[y].modis).filter(r => isFinite(r) && r > 0);
     const raw = ov.map(y => by[y].viirs / Math.max(by[y].modis, 1)).sort((a, b) => a - b)[Math.floor((ov.length - 1) / 2)];
-    stat = `<p class="agree-big"><strong>${Math.round(medd * 100)}%</strong> typical yearly gap</p>
+    const agree = Math.max(0, Math.round(100 * (1 - medd))), R = 52, C = 2 * Math.PI * R;
+    stat = `<div class="gauge" style="--to:${(C * (1 - agree / 100)).toFixed(1)}px;--c:${C.toFixed(1)}px"><svg viewBox="0 0 128 128" aria-hidden="true"><circle cx="64" cy="64" r="${R}" class="rt"/><circle cx="64" cy="64" r="${R}" class="rv"/></svg>
+        <div class="gauge-t"><strong><span data-count="${agree}">${agree}</span>%</strong><span>typical yearly agreement</span></div></div>
       <p>Across ${ov.length} overlap years, converted MODIS lands within ${Math.round(medd * 100)}% of what VIIRS saw in a typical year, ${Math.round(worst * 100)}% at worst.</p>
       <p>Raw MODIS counts here are about <strong>${raw.toFixed(1)}×</strong> smaller than VIIRS. That is the gap the conversion closes.</p>
       <p class="hint">${state.meta.nn ? 'The U-Net was trained on 2012–2017 and tuned on 2018; from 2019 these are years it never saw.' : 'These overlap years were also used to fit the conversion. For a fair score on years it never saw, see the Method section below.'}</p>`;
   }
   $('#agreeSide').innerHTML = `<ul class="agree-key"><li><i class="k-v"></i>VIIRS, observed</li><li><i class="k-e"></i>MODIS, converted to VIIRS terms</li><li><i class="k-m"></i>MODIS, raw counts</li></ul>${stat}`;
+  play($('#agreeSide'));
 }
 
 /* ---------- motion: smooth scroll, reveals, the stage, method steps ---------- */
 // method: the step in the middle of the screen lights up its label
 function watchSteps() {
   if (stepWatch) stepWatch.disconnect();
-  const steps = $$('.steps li'), labels = $$('.how-nav li');
+  const steps = $$('#howSteps > li'), panes = $$('#howStage .vz'), prog = $('#howStage .stage-prog i');
   stepWatch = new IntersectionObserver(es => es.forEach(e => {
     if (!e.isIntersecting) return;
     const k = e.target.dataset.step;
-    steps.forEach(x => x.classList.toggle('on', x.dataset.step === k));
-    labels.forEach(x => x.classList.toggle('on', x.dataset.step === k));
+    [...steps, ...panes].forEach(x => { const on = x.dataset.step === k; x.classList.toggle('on', on); x.classList.toggle('play', on); });
+    if (prog) prog.style.transform = `scaleY(${(+k + 1) / steps.length})`;
   }), { rootMargin: '-45% 0px -45% 0px' });
   steps.forEach(x => stepWatch.observe(x));
-  labels.forEach(l => l.onclick = () => scrollToEl(steps[+l.dataset.step]));
 }
 
 function scrollToEl(el) {
   if (!el) return;
   if (lenis) lenis.scrollTo(el, { offset: -72, duration: 1.4 });
   else el.scrollIntoView({ behavior: reduceMotion.matches ? 'auto' : 'smooth' });
+}
+// intro: rings draw in, the name writes itself, then flies into the nav logo and the page opens
+function runIntro() {
+  const root = document.documentElement, ov = $('#intro');
+  if (!root.classList.contains('intro-on') || !ov) { if (ov) ov.remove(); root.classList.remove('intro-on'); return Promise.resolve(); }
+  return new Promise(done => {
+    requestAnimationFrame(() => ov.classList.add('go'));
+    setTimeout(() => {
+      // FLIP the word onto the nav wordmark
+      const word = $('.intro-word', ov), mark = $('.mark span'), to = mark.getBoundingClientRect(), from = word.getBoundingClientRect();
+      const k = parseFloat(getComputedStyle(mark).fontSize) / parseFloat(getComputedStyle(word).fontSize);
+      word.style.transform = `translate(${to.left - from.left}px, ${to.top + to.height / 2 - from.top - from.height * k / 2}px) scale(${k})`;
+      ov.classList.add('out');
+      setTimeout(done, 380);
+      setTimeout(() => { root.classList.remove('intro-on'); ov.remove(); }, 1000);
+    }, 1550);
+  });
 }
 function initScroll() {
   const reduced = reduceMotion.matches;
@@ -716,7 +927,7 @@ function initScroll() {
       part.innerHTML = part.textContent.trim().split(/\s+/).map(w => `<span class="w" style="--d:${i++ * 55}ms">${esc(w)}</span>`).join(' ');
     });
   });
-  requestAnimationFrame(() => document.documentElement.classList.add('loaded'));
+  runIntro().then(() => document.documentElement.classList.add('loaded'));
 
   // sections fade up from a blur as they enter, children staggered
   const io = new IntersectionObserver(es => es.forEach(e => {
