@@ -241,6 +241,6 @@ def meta():
     m["first_month"] = f"{int(mo.year.iloc[0])}-{int(mo.month.iloc[0]):02d}"
     m["last_month"] = f"{int(mo.year.iloc[-1])}-{int(mo.month.iloc[-1]):02d}"
     m["source_labels"] = SRC_LABEL
-    if (APP / "nn.json").exists():
-        m["nn"] = json.loads((APP / "nn.json").read_text())
+    # The model card ships with the repo, so every machine shows the U-Net method section.
+    m["nn"] = json.loads((Path(__file__).parent / "nn.json").read_text())
     return m
