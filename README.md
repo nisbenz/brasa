@@ -6,7 +6,7 @@ NASA Space Apps Challenge 2026 · *Harmonization of MODIS and VIIRS Hot Spots*
 
 ![Brasa: area title, plain-language reading and fire-danger dial](docs/screenshots/hero.jpg)
 
-MODIS has detected active fires since 2000. VIIRS, its successor, has finer pixels and catches smaller fires, so it reports roughly four times as many hotspots for the same burning. The two records can't be compared directly. Brasa converts every MODIS month into **VIIRS-equivalent hotspots**, so the sensor of origin no longer matters and the patterns, trends and anomalies are what you see.
+MODIS has detected active fires since 2000. VIIRS, its successor, has finer pixels and catches smaller fires, so it reports roughly four times as many hotspots for the same burning. The two records can't be compared directly. Brasa converts every MODIS month into **VIIRS-equivalent hotspots**, so the sensor of origin no longer matters and the patterns, trends and anomalies are what you see. The conversion for 2002–2012 comes from a **U-Net + MLP ensemble** trained where both sensors flew; a hierarchical ratio model covers the months and places where it is more accurate.
 
 Pick an area by drawing it on the map, typing coordinates, choosing a point and radius, picking a country, or clicking the 3D globe. Then choose a period, and Brasa shows:
 
@@ -43,6 +43,22 @@ That's 48 zips, 9.1 GB and **568 M detections**. These files don't include ocean
 
 Reference sensor: **VIIRS Suomi NPP**, the longest VIIRS record. Grid: **0.25° cells × month**.
 
+Where each month of the calendar comes from:
+
+| Period | Rest of the world | Brazil |
+|---|---|---|
+| Nov 2000 – Jun 2002 (Terra only) | ratio model | ratio model |
+| Jul 2002 – Jan 2012 (Terra + Aqua) | **U-Net + MLP ensemble** | ratio model |
+| Feb 2012 – Dec 2025 | observed VIIRS S-NPP | observed VIIRS S-NPP |
+
+### The neural ensemble (2002–2012)
+
+A 3-level **U-Net** (1.8 M parameters) reads 15 MODIS signals per cell for the month before, the month itself and the month after: fire counts (all, confident, night, Terra), fire power, fire days, pixel size, confidence and brightness, plus location and a MODIS-only climatology. Nothing comes from VIIRS, so it runs on years before VIIRS existed. Seeing about 17° of map around each cell, it predicts a correction to the global 4.1× ratio and learns where VIIRS finds small fires MODIS missed entirely. It was trained on 2012–2017 with a negative-binomial loss plus a term that keeps regional totals right, and tuned on 2018.
+
+The U-Net slightly under-counts tiny fires, so its output is averaged 50/50 with a **per-pixel MLP** (cell plus neighbourhood sums), which is nearly unbiased. The weights were fixed before looking at the test years. In Brazil the ensemble is less accurate than the ratio model, so Brazil stays on the ratio model. Weights: [`model/unet.pt`](model/unet.pt). Training, evaluation and prediction code: [`ml/`](ml/README.md). [`pipeline/08_merge_unet.py`](pipeline/08_merge_unet.py) loads the predictions into the app tables, and [`app/nn.json`](app/nn.json) is the model card the app's method section reads.
+
+### The ratio model (Terra-only months and Brazil)
+
 For months before VIIRS:
 
 ```
@@ -62,6 +78,22 @@ For VIIRS months, Brasa uses observed Suomi NPP. **The two Suomi NPP outage mont
 The code is in [`pipeline/harmonize.py`](pipeline/harmonize.py).
 
 ## Validation
+
+### Neural ensemble vs ratio model
+
+Trained on 2012–2017, tuned on 2018, scored on **2019–2024**, years it never saw. Median `|ln((pred+1)/(obs+1))|` of monthly totals (lower is better) and the share of month anomalies with the right sign at 5°:
+
+| Method | 1° cells | 5° boxes | Countries | Anomaly sign (5°) |
+|---|---|---|---|---|
+| Ratio model (M3) | 0.304 | 0.246 | 0.199 | 0.768 |
+| Per-pixel MLP | 0.291 | 0.245 | 0.208 | 0.851 |
+| U-Net | 0.266 | 0.211 | 0.184 | 0.863 |
+| **U-Net + MLP ensemble** | **0.261** | **0.203** | **0.175** | **0.867** |
+| *Two VIIRS satellites (best possible)* | 0.163 | 0.105 | 0.087 | 0.925 |
+
+The ensemble beats the ratio model at every scale. Full evaluation outputs are in [`model/eval/`](model/eval/) and [`ml/README.md`](ml/README.md).
+
+### Ratio model
 
 **Time hold-out:** the models are trained on 2012–2018 only, then asked to predict 2019–2024 from MODIS, and compared with what Suomi NPP actually observed. Columns:
 
@@ -94,7 +126,7 @@ The full tables are in [`docs/validation/`](docs/validation/).
 
 ### Quick start: prebuilt data (about 2 minutes)
 
-The [`data-2000-2025` release](https://github.com/nisbenz/brasa/releases/tag/data-2000-2025) holds the harmonized tables the app reads (87 MB). This skips the 9 GB FIRMS download and the pipeline. You need Python 3.12 and the GitHub CLI (`gh`) signed in.
+The [`data-2000-2025` release](https://github.com/nisbenz/brasa/releases/tag/data-2000-2025) holds the harmonized tables the app reads, with the U-Net ensemble already merged in (about 290 MB). This skips the 9 GB FIRMS download and the pipeline. You need Python 3.12 and the GitHub CLI (`gh`) signed in.
 
 ```bash
 python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
@@ -102,7 +134,7 @@ pipeline/fetch_prebuilt.sh                                        # checks the S
 cd app && ../.venv/bin/python -m uvicorn server:app --port 8765   # open http://localhost:8765
 ```
 
-Everything works except **Download every hotspot**, which needs the raw detections from the full build below. The app tells you this if you click it.
+Any port works (`--port 8000` is fine). Everything works except **Download every hotspot**, which needs the raw detections from the full build below. The app tells you this if you click it.
 
 ### Full build from NASA FIRMS
 
@@ -123,7 +155,14 @@ pipeline/00_download.sh ~/firms                                   # 48 zips, ~9 
 cd app && ../.venv/bin/python -m uvicorn server:app --port 8765   # open http://localhost:8765
 ```
 
-On a 16-core laptop, the processing steps take about five minutes in total. The download speed depends on the FIRMS servers. The app reads `~/firms/derived` by default; set `BRASA_DATA` to point it elsewhere.
+This build uses the ratio model for every MODIS month. To load the neural ensemble on top, run the `ml/` steps (a GPU helps; [`ml/run_colab.ipynb`](ml/run_colab.ipynb) runs the whole thing on Colab) and then:
+
+```bash
+.venv/bin/python -I ml/run_predict.py ... --app ~/firms/derived/ml/features.parquet   # see ml/README.md
+.venv/bin/python -I pipeline/08_merge_unet.py ~/firms/derived     # ensemble -> app tables, rerunnable
+```
+
+On a 16-core laptop, the pipeline steps 01–07 take about five minutes in total. The download speed depends on the FIRMS servers. The app reads `~/firms/derived` by default; set `BRASA_DATA` to point it elsewhere.
 
 ## API
 
@@ -144,8 +183,10 @@ On a 16-core laptop, the processing steps take about five minutes in total. The 
 ## Project layout
 
 ```
-pipeline/   download, conversion, aggregation, harmonization model, validation, globe grid
-app/        FastAPI server + DuckDB query engine (engine.py)
+pipeline/   download, conversion, aggregation, harmonization model, validation, globe grid, ensemble merge
+ml/         U-Net / MLP training, evaluation and prediction (see ml/README.md)
+model/      trained weights and hold-out evaluation outputs
+app/        FastAPI server + DuckDB query engine (engine.py) + model card (nn.json)
 app/web/    static frontend: plain ES modules, Leaflet, three.js; no build step
 docs/       screenshots and validation outputs
 ```
@@ -156,6 +197,7 @@ docs/       screenshots and validation outputs
 
 - **2026 is not included yet.** The FIRMS yearly summaries end in 2025; adding 2026 needs a FIRMS archive or near-real-time request.
 - Harmonization works on **counts per area and month**, not individual detections. The points CSV exports raw FIRMS detections labelled by sensor.
+- The ensemble doesn't cover the Terra-only months (Nov 2000 – Jun 2002) or Brazil; those stay on the ratio model. A v2 network that also covers Terra-only months is in [`ml/`](ml/README.md), awaiting full GPU training.
 - Very small areas in the MODIS era are noisier. Every exported month carries a typical-uncertainty figure: ±21% for Terra+Aqua and ±27% for Terra alone.
 - Hotspots count detected fire activity, not burned area or fire intensity.
 
