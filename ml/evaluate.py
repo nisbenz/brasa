@@ -1,6 +1,6 @@
 """Score the U-Net against Brasa's hierarchical-ratio model and the NOAA-20 ceiling.
 
-Usage: python -I ml_v1/evaluate.py <derived_dir> <stack_dir> <model.pt>
+Usage: python -I ml/evaluate.py <derived_dir> <stack_dir> <model.pt>
            [--train 2012-2018] [--test 2019-2024] [--importance] [--out <dir>]
 Both models predict S-NPP-equivalent counts for the test months from MODIS alone. Brasa is refit
 here on the same grid, years and filters (pipeline/harmonize.fit, a=20, seasonal + floor), so the

@@ -156,10 +156,9 @@ pipeline/00_download.sh ~/firms                                   # 48 zips, ~9 
 cd app && ../.venv/bin/python -m uvicorn server:app --port 8765   # open http://localhost:8765
 ```
 
-This build uses the ratio model for every MODIS month. To load the neural ensemble on top, run the `ml/` steps (a GPU helps; [`ml/run_colab.ipynb`](ml/run_colab.ipynb) runs the whole thing on Colab) and then:
+This build uses the ratio model for every MODIS month. To load the neural ensemble on top, put its per-cell predictions at `~/firms/derived/ml/app_nn.parquet` (cell, year, month, pred) and run:
 
 ```bash
-.venv/bin/python -I ml/run_predict.py ... --app ~/firms/derived/ml/features.parquet   # see ml/README.md
 .venv/bin/python -I pipeline/08_merge_unet.py ~/firms/derived     # ensemble -> app tables, rerunnable
 ```
 
@@ -185,7 +184,7 @@ On a 16-core laptop, the pipeline steps 01–07 take about five minutes in total
 
 ```
 pipeline/   download, conversion, aggregation, harmonization model, validation, globe grid, ensemble merge
-ml/         U-Net / MLP training, evaluation and prediction (see ml/README.md)
+ml/         U-Net training, evaluation and synthetic VIIRS output (see ml/README.md)
 model/      trained weights and hold-out evaluation outputs
 app/        FastAPI server + DuckDB query engine (engine.py) + model card (nn.json)
 app/web/    static frontend: plain ES modules, Leaflet, three.js; no build step
@@ -198,7 +197,7 @@ docs/       screenshots and validation outputs
 
 - **2026 is not included yet.** The FIRMS yearly summaries end in 2025; adding 2026 needs a FIRMS archive or near-real-time request.
 - Harmonization works on **counts per area and month**, not individual detections. The points CSV exports raw FIRMS detections labelled by sensor.
-- The ensemble doesn't cover the Terra-only months (Nov 2000 – Jun 2002) or Brazil; those stay on the ratio model. A v2 network that also covers Terra-only months is in [`ml/`](ml/README.md), awaiting full GPU training.
+- The ensemble doesn't cover the Terra-only months (Nov 2000 – Jun 2002) or Brazil; those stay on the ratio model.
 - Very small areas in the MODIS era are noisier. Every exported month carries a typical-uncertainty figure: ±21% for Terra+Aqua and ±27% for Terra alone.
 - Hotspots count detected fire activity, not burned area or fire intensity.
 

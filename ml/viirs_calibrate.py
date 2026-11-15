@@ -1,6 +1,6 @@
-"""Measure how MODIS detection attributes map onto VIIRS S-NPP ones, for ml_v1/to_viirs.py.
+"""Measure how MODIS detection attributes map onto VIIRS S-NPP ones, for ml/to_viirs.py.
 
-Usage: python -I ml_v1/viirs_calibrate.py <derived_dir> <firms_zip_dir> [--year 2020] [--out <json>]
+Usage: python -I ml/viirs_calibrate.py <derived_dir> <firms_zip_dir> [--year 2020] [--out <json>]
 Reads  <derived>/points/{modis,viirs-snpp}_<year>.parquet     (pipeline/01_to_parquet.py)
        <zip_dir>/viirs-snpp_<year>_all_countries.zip          (only for bright_ti5, dropped by 01)
 Writes <derived>/ml/viirs_calibration.json (default)

@@ -1,7 +1,7 @@
 """Train the MODIS -> VIIRS-equivalent U-Net on random patches of the overlap period.
 
-Usage: python -I ml_v1/train.py <stack_dir> <out.pt> [--train 2012-2017] [--val 2018] ...
-       python -I ml_v1/train.py <stack_dir> <out.pt> --smoke     # tiny CPU run: checks the plumbing
+Usage: python -I ml/train.py <stack_dir> <out.pt> [--train 2012-2017] [--val 2018] ...
+       python -I ml/train.py <stack_dir> <out.pt> --smoke     # tiny CPU run: checks the plumbing
 Default split mirrors pipeline/03_validate.py: fit on <= 2018 (2018 used for early stopping),
 test 2019-2024 with ml/evaluate.py.
 """

@@ -1,12 +1,12 @@
 """MODIS detections + U-Net prediction -> synthetic VIIRS S-NPP detections in the FIRMS schema.
 
-Usage: python -I ml_v1/to_viirs.py <derived_dir> <stack_dir> <model.pt> --years 2005[-2007]
+Usage: python -I ml/to_viirs.py <derived_dir> <stack_dir> <model.pt> --years 2005[-2007]
            [--months 2005-08,2005-09] [--bbox W,S,E,N] [--cal <json>] [--out <dir>]
            [--format csv|parquet] [--draw round|nb] [--min-mu 0.05] [--seed 0]
-Needs  <stack_dir>       from ml_v1/build_tensor.py covering the requested months (any years: the
+Needs  <stack_dir>       from ml/build_tensor.py covering the requested months (any years: the
                          inputs are MODIS only)
        <derived>/points/modis_<year>.parquet, <derived>/app/cell_country.parquet
-       ml/viirs_calibration.json from ml_v1/viirs_calibrate.py
+       ml/viirs_calibration.json from ml/viirs_calibrate.py
 Writes <out>/viirs-snpp-unet/<year>/viirs-snpp-unet_<year>_<Country>.csv   (FIRMS archive layout)
        or <out>/viirs-snpp-unet/<year>/viirs-snpp-unet_<year>_<MM>.parquet  (--format parquet)
        <out>/viirs-snpp-unet/<year>/cells_<year>.parquet   per cell-month: MODIS count, mu, alpha, n

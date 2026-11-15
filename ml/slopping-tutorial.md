@@ -34,16 +34,16 @@ That should print True.
 
 This writes about 3.7 GB of tensors to ~/firms/derived/ml/overlap:
 
-.venv/bin/python -I ml_v1/build_tensor.py ~/firms/derived --years 2012-2025
+.venv/bin/python -I ml/build_tensor.py ~/firms/derived --years 2012-2025
 
 Training can run for a while, so it’s wrapped in nohup to survive a dropped SSH session:
 
-nohup .venv/bin/python -I ml_v1/train.py ~/firms/derived/ml/overlap ~/firms/derived/ml/unet.pt > train.log 2>&1 &
+nohup .venv/bin/python -I ml/train.py ~/firms/derived/ml/overlap ~/firms/derived/ml/unet.pt > train.log 2>&1 &
 tail -f train.log
 
 When training finishes:
 
-.venv/bin/python -I ml_v1/evaluate.py ~/firms/derived ~/firms/derived/ml/overlap ~/firms/derived/ml/unet.pt --importance
+.venv/bin/python -I ml/evaluate.py ~/firms/derived ~/firms/derived/ml/overlap ~/firms/derived/ml/unet.pt --importance
 
 Results land in ~/firms/derived/ml/unet/comparison.csv and importance.json. Send those back and I’ll go through them.
 
