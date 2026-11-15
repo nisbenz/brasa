@@ -651,6 +651,43 @@ const VIZ = {
       ${cap(['Brazil and the Terra-only months before July 2002', 'stay on the ratio model, which is more accurate there'])}`, 'Timeline of data sources from 2000 to 2025');
   },
 };
+// Diagrams for the ratio dataset shipped in the prebuilt release.
+Object.assign(VIZ, {
+  ratio() {
+    return svgV(`<text class="vt" x="40" y="40">Learn the conversion during the overlap</text>
+      <text class="vm" x="40" y="64">Illustrative counts for the same cell and month</text>
+      <rect class="box" x="40" y="104" width="200" height="112" rx="12"/>
+      <text class="vl" x="60" y="135">MODIS observed</text><text class="vb" x="60" y="183">10</text>
+      <rect class="box hot" x="320" y="104" width="200" height="112" rx="12"/>
+      <text class="vl" x="340" y="135">VIIRS observed</text><text class="vb" x="340" y="183">40</text>
+      <path class="flow" d="M250,160H310M300,152L310,160L300,168"/>
+      <text class="vl" x="40" y="267">40 / 10 = a conversion factor of 4</text>
+      ${cap(['The fitted factor varies by location and season.', 'Sparse cells borrow information from larger neighbourhoods.'])}`,
+      'Illustrative MODIS and VIIRS counts of 10 and 40 give a local conversion factor of four');
+  },
+  floor() {
+    return svgV(`<text class="vt" x="40" y="40">Account for small fires MODIS misses</text>
+      <text class="vm" x="40" y="64">Illustrative overlap observations</text>
+      <rect class="box" x="40" y="104" width="200" height="112" rx="12"/>
+      <text class="vl" x="60" y="135">MODIS observed</text><text class="vb" x="60" y="183">0</text>
+      <rect class="box hot" x="320" y="104" width="200" height="112" rx="12"/>
+      <text class="vl" x="340" y="135">VIIRS observed</text><text class="vb" x="340" y="183">3</text>
+      <text class="vl" x="40" y="267">A multiplier alone would still give zero.</text>
+      ${cap(['The small-fire floor learns a typical VIIRS count', 'for active cells and months where MODIS recorded zero.'])}`,
+      'Illustrative zero MODIS detections and three VIIRS detections explain the estimated small-fire floor');
+  },
+  history() {
+    return svgV(`<text class="vt" x="40" y="40">Keep the source of every monthly value</text>
+      <rect class="box" x="40" y="90" width="480" height="64" rx="10"/>
+      <text class="vl" x="58" y="117">Nov 2000 to Jun 2002</text><text class="vm" x="58" y="139">Terra-only conversion</text>
+      <rect class="box hot" x="40" y="170" width="480" height="64" rx="10"/>
+      <text class="vl" x="58" y="197">Jul 2002 to Jan 2012</text><text class="vm" x="58" y="219">Terra + Aqua converted to VIIRS-equivalent counts</text>
+      <rect class="box" x="40" y="250" width="480" height="64" rx="10"/>
+      <text class="vl" x="58" y="277">From Feb 2012</text><text class="vm" x="58" y="299">S-NPP observed; NOAA-20 substitutes in selected gaps</text>
+      ${cap(['The calendar combines converted history', 'and observed VIIRS, with the source recorded each month.'])}`,
+      'Timeline of the ratio calendar sources: Terra, Terra plus Aqua, then observed VIIRS');
+  },
+});
 const NN_STEPS = [
   { t: 'Two satellites, two scales', viz: 'sensors', facts: ['MODIS · 1 km · 2000–', 'VIIRS · 375 m · 2012–', 'about 4× more hotspots'],
     p: 'MODIS has watched fires since 2000 with 1 km pixels. VIIRS, flying since 2012, has 375 m pixels and catches fires too small for MODIS, so it reports about four times as many hotspots. Put side by side, 2012 would look like a sudden explosion of fire that never happened.' },
@@ -668,7 +705,20 @@ const NN_STEPS = [
     p: 'The calendar uses the ensemble from July 2002 to January 2012 and what VIIRS observed from then on, with NOAA-20 filling the two Suomi NPP outages. In Brazil, and in the Terra-only months before July 2002, the ratio model is more accurate, so it stays there.' },
 ];
 function renderMethod() {
-  const nn = state.meta.nn; if (!nn) return;
+  const nn = state.meta.nn;
+  if (!nn) {
+    const diagrams = [VIZ.grid(), VIZ.ratio(), VIZ.floor(), VIZ.history()];
+    $$('#howSteps > li').forEach((step, i) => {
+      $('.vz-inline', step)?.remove();
+      step.insertAdjacentHTML('beforeend', `<div class="vz vz-inline">${diagrams[i]}</div>`);
+    });
+    const stage = $('#howStage');
+    stage.hidden = false;
+    stage.innerHTML = '<div class="stage-prog"><i></i></div>'
+      + diagrams.map((diagram, i) => `<div class="vz" data-step="${i}">${diagram}</div>`).join('');
+    watchSteps();
+    return;
+  }
   $('#howLede').textContent = 'VIIRS sees about four times as many hotspots as MODIS. A neural network trained where both satellites flew rewrites the MODIS years in VIIRS terms.';
   $('#tlPanel').hidden = true;
   const n = NN_STEPS.length, pad = k => String(k).padStart(2, '0');
@@ -875,6 +925,13 @@ function renderAgree() {
 function watchSteps() {
   if (stepWatch) stepWatch.disconnect();
   const steps = $$('#howSteps > li'), panes = $$('#howStage .vz'), prog = $('#howStage .stage-prog i');
+  // Show a diagram immediately, even before a step crosses the observer's centre band.
+  [...steps, ...panes].forEach(x => {
+    const first = x.dataset.step === '0';
+    x.classList.toggle('on', first);
+    x.classList.toggle('play', first);
+  });
+  if (prog && steps.length) prog.style.transform = `scaleY(${1 / steps.length})`;
   stepWatch = new IntersectionObserver(es => es.forEach(e => {
     if (!e.isIntersecting) return;
     const k = e.target.dataset.step;
