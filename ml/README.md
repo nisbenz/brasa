@@ -3,7 +3,7 @@
 A convolutional network that predicts VIIRS S-NPP-equivalent hotspot counts per 0.25° cell and
 month from MODIS alone. It is scored against Brasa's hierarchical-ratio model (`pipeline/harmonize.py`)
 and the NOAA-20 ceiling on the same hold-out. **Status: trained (`model/unet.pt`, epoch 19). This folder is the code as of commit
-`117d824`, plus the VIIRS-schema output layer below.**
+`117d824`, plus the U-Net + MLP ensemble from `4d18e46` and the VIIRS-schema output layer below.**
 
 ## What the overlap period shows (2012–2025, `features.parquet`)
 
@@ -94,6 +94,51 @@ Brasa M3 is fit on 2012–2018. On held-out 2022–2024 cell-months where MODIS 
 So nearly all of Brasa's remaining error is invisible to the per-cell MODIS record. The U-Net's
 only remaining edge is spatial and temporal context. Expect small gains at best, and extend this
 check with neighbourhood sums before spending GPU time.
+
+## Ensemble for the app (`context_baseline.py`, `predict_ensemble.py`)
+
+The app's MODIS-era months use the mean of the U-Net and a per-pixel MLP (restored from commit
+`4d18e46`). The MLP has the same residual form as the U-Net, `log μ = log(4.1·M + 0.05) + g(x)`,
+but `g` is a 2×128 MLP on 33 hand-built features (`core.context_features`): MODIS counts summed over
+1/3/9/25-cell boxes for the previous, current and next month, the other current-month channels,
+static maps, the calendar climatology and the season. On 2019–2024 the mean scores 0.203 median
+|log error| at 5°, against 0.211 for the U-Net alone and 0.246 for Brasa M3.
+
+```
+stack (2012-2025) ──context_baseline.py──▶ ctx_models.pt ─┐
+stack (2002-2025) ─────────────────────────────────────────┼─predict_ensemble.py --app─▶ app_nn.parquet ─▶ pipeline/08_merge_unet.py
+model/unet.pt ─────────────────────────────────────────────┘
+```
+
+```bash
+# MLP: train 2012-2017, early-stop on 2018. Holds ~6 GB of samples in memory: use a GPU box or Colab
+.venv/bin/python -I ml/context_baseline.py ~/firms/derived/ml/overlap ~/firms/derived/ml --no-predict
+# stack over every Terra+Aqua month (MODIS only, no VIIRS needed), then the ensemble
+.venv/bin/python -I ml/build_tensor.py ~/firms/derived --years 2002-2025 --name full
+.venv/bin/python -I ml/predict_ensemble.py ~/firms/derived/ml/full model/unet.pt ~/firms/derived/ml/ctx_models.pt \
+    ~/firms/derived/ml/ensemble --countries ~/firms/derived/app/cell_country.parquet --app ~/firms/derived/ml/app_nn.parquet
+```
+
+`predict_ensemble.py` starts at 2002-07 by default: before that only Terra flew, the models were
+trained on Terra + Aqua, and `08_merge_unet.py` keeps Brasa M3 for those months. Besides
+`app_nn.parquet` (cell, year, month, pred) it writes `cells_<year>.parquet` with both members
+(`unet`, `mlp`, `pred`) and `monthly_totals.csv` (MODIS, the three predictions and observed S-NPP,
+globally and per country). Only cells with a prediction above 0.001 are kept.
+`ctx_models.pt` is not in the repo; the one used for the app came from `ml/colab_run_model.ipynb`
+at commit `4d18e46`.
+
+Smoke test (CPU, seconds, the Cerrado stack from the smoke test above; the MLP trained on 2016–2017
+here is only good for checking the plumbing):
+
+```bash
+.venv/bin/python -I ml/context_baseline.py ~/firms/derived/ml/smoke /tmp/ctx --no-predict
+.venv/bin/python -I ml/predict_ensemble.py ~/firms/derived/ml/smoke model/unet.pt /tmp/ctx/ctx_models.pt /tmp/ens \
+    --start 2020-08 --end 2020-08 --app /tmp/app_nn.parquet
+```
+
+The tile halo in `core.predict_month` is 48 cells (it was 16 at `117d824`): the U-Net's receptive
+radius is about 35 cells, and at 16 the tile seams shifted global totals by 1.8 %. This applies to
+`evaluate.py` and `to_viirs.py` too.
 
 ## Output layer: synthetic VIIRS detections (`viirs_calibrate.py`, `to_viirs.py`)
 
