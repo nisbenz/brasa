@@ -156,10 +156,17 @@ pipeline/00_download.sh ~/firms                                   # 48 zips, ~9 
 cd app && ../.venv/bin/python -m uvicorn server:app --port 8765   # open http://localhost:8765
 ```
 
-This build uses the ratio model for every MODIS month. To load the neural ensemble on top, put its per-cell predictions at `~/firms/derived/ml/app_nn.parquet` (cell, year, month, pred) and run:
+This build uses the ratio model for every MODIS month. To load the neural ensemble on top, write its per-cell predictions to `~/firms/derived/ml/app_nn.parquet` (cell, year, month, pred) and merge them. The MLP half needs `ctx_models.pt` from `ml/context_baseline.py`, which wants more than 8 GB of RAM or a GPU; see [`ml/README.md`](ml/README.md#ensemble-for-the-app-context_baselinepy-predict_ensemblepy).
 
 ```bash
+.venv/bin/pip install -r ml/requirements.txt
+.venv/bin/python -I ml/features.py ~/firms/derived                # MODIS + VIIRS features per cell-month
+.venv/bin/python -I ml/build_tensor.py ~/firms/derived --years 2012-2025              # training stack
+.venv/bin/python -I ml/context_baseline.py ~/firms/derived/ml/overlap ~/firms/derived/ml --no-predict   # -> ctx_models.pt
+.venv/bin/python -I ml/build_tensor.py ~/firms/derived --years 2002-2025 --name full  # inference stack
+.venv/bin/python -I ml/predict_ensemble.py ~/firms/derived/ml/full model/unet.pt ~/firms/derived/ml/ctx_models.pt ~/firms/derived/ml/ensemble --app ~/firms/derived/ml/app_nn.parquet
 .venv/bin/python -I pipeline/08_merge_unet.py ~/firms/derived     # ensemble -> app tables, rerunnable
+.venv/bin/python -I pipeline/07_globe.py      ~/firms/derived     # rebuild the globe with the ensemble
 ```
 
 On a 16-core laptop, the pipeline steps 01–07 take about five minutes in total. The download speed depends on the FIRMS servers. The app reads `~/firms/derived` by default; set `BRASA_DATA` to point it elsewhere.

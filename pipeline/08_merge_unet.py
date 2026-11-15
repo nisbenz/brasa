@@ -29,7 +29,7 @@ a = ap.parse_args()
 A = a.derived / "app"
 nn = a.nn or a.derived / "ml" / "app_nn.parquet"
 if not nn.exists():
-    raise SystemExit(f"{nn} not found: download app_nn.parquet from MyDrive/brasa/output/")
+    raise SystemExit(f"{nn} not found: write it with ml/predict_ensemble.py --app (ml/README.md)")
 for f in ("harm", "months"):
     if not (A / f"{f}_m3.parquet").exists():
         shutil.copy(A / f"{f}.parquet", A / f"{f}_m3.parquet")
