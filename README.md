@@ -4,7 +4,7 @@
 
 NASA Space Apps Challenge 2026 · *Harmonization of MODIS and VIIRS Hot Spots*
 
-![Brasa: area title, plain-language reading and fire-danger dial](docs/screenshots/hero.jpg)
+![Brasa: landing page with the 3D fire globe](docs/screenshots/hero.jpg)
 
 MODIS has detected active fires since 2000. VIIRS, its successor, has finer pixels and catches smaller fires, so it reports roughly four times as many hotspots for the same burning. The two records can't be compared directly. Brasa converts every MODIS month into **VIIRS-equivalent hotspots**, so the sensor of origin no longer matters and the patterns, trends and anomalies are what you see. The conversion for 2002–2012 comes from a **U-Net + MLP ensemble** trained where both sensors flew; a hierarchical ratio model covers the months and places where it is more accurate.
 
@@ -22,6 +22,7 @@ Pick an area by drawing it on the map, typing coordinates, choosing a point and 
 |---|---|
 | ![Fire rings](docs/screenshots/rings.jpg) | ![3D globe](docs/screenshots/globe.jpg) |
 | ![Month-by-month calendar](docs/screenshots/calendar.jpg) | ![Sensor agreement](docs/screenshots/agreement.jpg) |
+| ![Area record: summary cards for the selected area](docs/screenshots/record.jpg) | ![Method: the U-Net step](docs/screenshots/method.jpg) |
 
 ---
 
