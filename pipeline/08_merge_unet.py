@@ -1,7 +1,7 @@
 """Load the U-Net + MLP ensemble into the app dataset.
 
 Usage: python -I 08_merge_unet.py <derived_dir> [--nn <app_nn.parquet>] [--legacy Brazil]
-Reads <derived>/ml/app_nn.parquet (written by ml/run_predict.py --app: cell, year, month,
+Reads <derived>/ml/app_nn.parquet (the ensemble's per-cell output: cell, year, month,
 pred = VIIRS S-NPP-equivalent detections predicted from MODIS alone, 2002-07 .. 2025-12).
 
 What changes in <derived>/app:

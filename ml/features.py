@@ -1,6 +1,6 @@
 """Rich MODIS descriptors + VIIRS targets per 0.25-degree cell x month.
 
-Usage: python -I ml_v1/features.py <derived_dir> [--years 2000-2025] [--bbox W,S,E,N]
+Usage: python -I ml/features.py <derived_dir> [--years 2000-2025] [--bbox W,S,E,N]
 Reads  <derived>/points/*.parquet               (from pipeline/01_to_parquet.py)
 Writes <derived>/ml/features.parquet            one row per cell-month with any detection
 

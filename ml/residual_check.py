@@ -1,6 +1,6 @@
 """Is there signal left for a learned model? Explain Brasa's errors with MODIS descriptors.
 
-Usage: python -I ml_v1/residual_check.py <derived_dir>
+Usage: python -I ml/residual_check.py <derived_dir>
 No training. Fits Brasa M3 on 2012-2018, then on cell-months where MODIS saw fire:
   1. residual r = ln((V+1)/(pred+1)) on 2019-2024 (out of sample)
   2. noise floor: same quantity for NOAA-20 vs S-NPP (2019-2024): irreducible scatter

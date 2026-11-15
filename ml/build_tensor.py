@@ -1,6 +1,6 @@
 """Densify ml/features.parquet into memory-mapped map stacks for the CNN.
 
-Usage: python -I ml_v1/build_tensor.py <derived_dir> [--years 2012-2025] [--bbox W,S,E,N] [--name overlap]
+Usage: python -I ml/build_tensor.py <derived_dir> [--years 2012-2025] [--bbox W,S,E,N] [--name overlap]
 Writes <derived>/ml/<name>/
   X.npy    (T, C, H, W) float16  MODIS channels (log counts, log FRP, standardized means)
   Y.npy    (T, H, W)    float32  VIIRS S-NPP good detections (NaN before 2012)
