@@ -205,3 +205,11 @@ docs/       screenshots and validation outputs
 ## Credits
 
 Fire data: NASA FIRMS (Fire Information for Resource Management System). MODIS Collection 6.1 and VIIRS 375 m active fire products, standard processing. Basemap © Esri, HERE, Garmin, © OpenStreetMap contributors. Coastlines from Natural Earth via world-atlas.
+
+## Team Members
+
+- [nisbenz](https://github.com/nisbenz)
+- [Imaaann](https://github.com/Imaaann)
+- [Wad2o](https://github.com/Wad2o)
+- [Ure-kiyo](https://github.com/Ure-kiyo)
+- [imxd0](https://github.com/imxd0)
