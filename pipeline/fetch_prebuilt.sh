@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Download the prebuilt harmonized dataset (~87 MB) from this repo's GitHub release,
+# Download the prebuilt harmonized dataset (~280 MB, includes the U-Net ensemble data) from this repo's GitHub release,
 # so the app runs without downloading 9 GB from FIRMS or rerunning the pipeline.
 # Needs the GitHub CLI (gh) signed in with access to the repo.
 # Usage: pipeline/fetch_prebuilt.sh [data_dir]   (default ~/firms/derived, which the app reads by default)

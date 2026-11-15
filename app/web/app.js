@@ -878,7 +878,9 @@ function watchSteps() {
   stepWatch = new IntersectionObserver(es => es.forEach(e => {
     if (!e.isIntersecting) return;
     const k = e.target.dataset.step;
-    [...steps, ...panes].forEach(x => { const on = x.dataset.step === k; x.classList.toggle('on', on); x.classList.toggle('play', on); });
+    // stage panes replay on every visit; inline diagrams (single-column layout) stay drawn once played
+    panes.forEach(x => { const on = x.dataset.step === k; x.classList.toggle('on', on); x.classList.toggle('play', on); });
+    steps.forEach(x => { const on = x.dataset.step === k; x.classList.toggle('on', on); if (on) x.classList.add('play'); });
     if (prog) prog.style.transform = `scaleY(${(+k + 1) / steps.length})`;
   }), { rootMargin: '-45% 0px -45% 0px' });
   steps.forEach(x => stepWatch.observe(x));
