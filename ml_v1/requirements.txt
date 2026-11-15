@@ -1,0 +1,2 @@
+# on top of ../requirements.txt; on a CUDA machine install the matching torch wheel instead
+torch==2.15.0

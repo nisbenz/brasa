@@ -37,6 +37,7 @@
   --ink-3: #6f7584;
   --bar: #343a48;
   --scar: #ff6a2b;
+  --logo-ink: #f2f3f5;
   --ochre: #ff6a2b; --on-ochre: #1a0a02;
   --up: #f2a15a; --dn: #7ab0dc;
   --nodata: #151821;
@@ -61,6 +62,7 @@
   --ink-3: #8a8a93;
   --bar: #d4d4d8;
   --scar: #e0501a;
+  --logo-ink: #103c2f;
   --ochre: #e0501a; --on-ochre: #fff;
   --up: #b8460f; --dn: #1b5fa8;
   --nodata: #ececef;
@@ -98,6 +100,9 @@ body.busy .scanbar { opacity: 1; }
 /* ---------- navigation ---------- */
 .nav { position: sticky; top: 0; z-index: 100; background: var(--nav-bg); backdrop-filter: blur(16px) saturate(1.4); -webkit-backdrop-filter: blur(16px) saturate(1.4); border-bottom: 1px solid var(--panel-edge); }
 .nav-in { max-width: var(--rail); margin: 0 auto; height: 64px; padding: 0 var(--pad); display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px; }
+.mark-logo { flex: none; display: block; }
+.mark-ink { fill: var(--logo-ink); }
+.mark-flame { fill: #e05528; }
 .mark { display: flex; align-items: center; gap: 8px; text-decoration: none; font-weight: 600; font-size: 17px; letter-spacing: -.02em; }
 .nav-links { display: flex; gap: 4px; }
 .nav-links a { text-decoration: none; font-size: 14px; height: 32px; display: flex; align-items: center; padding: 0 12px; border-radius: 8px; color: var(--ink-2); transition: color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease); }
